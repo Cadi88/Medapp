@@ -1,6 +1,6 @@
 import { describe, expect, test, vi } from 'vitest';
 import type { NatsConnection } from '@nats-io/transport-node';
-import { ensureStreams, headersPublicacion, subjectDlq, subjectEvento, traceparentDe } from '../../src/events/streams.js';
+import { esErrorDeMensaje, tipoValido, ensureStreams, headersPublicacion, subjectDlq, subjectEvento, traceparentDe } from '../../src/events/streams.js';
 
 describe('subjects', () => {
   test('evt.<type> y dlq.<type>', () => {
@@ -52,5 +52,25 @@ describe('ensureStreams', () => {
   test('propaga errores distintos de "no existe"', async () => {
     const jsm = { streams: { info: async () => { throw new Error('caído'); }, add: vi.fn(), update: vi.fn() } };
     await expect(ensureStreams({} as NatsConnection, async () => jsm as never)).rejects.toThrow('caído');
+  });
+});
+
+describe('tipoValido', () => {
+  test.each(['tenant.creado', 'a', 'a_b-c.d1'])('acepta %j', (t) => expect(tipoValido(t)).toBe(true));
+  test.each(['', 'a b', 'a..b', '.a', 'a.', 'a.>', 'a.*', 'A.b', 'a\nb'])('rechaza %j', (t) => expect(tipoValido(t)).toBe(false));
+});
+
+describe('esErrorDeMensaje', () => {
+  test('subject/argumento inválido (también como causa) es de mensaje', () => {
+    expect(esErrorDeMensaje(Object.assign(new Error('x'), { name: 'InvalidArgumentError' }))).toBe(true);
+    expect(esErrorDeMensaje(Object.assign(new Error('x'), { name: 'InvalidSubjectError' }))).toBe(true);
+    const envuelto = new Error('w', { cause: Object.assign(new Error('x'), { name: 'InvalidArgumentError' }) });
+    expect(esErrorDeMensaje(envuelto)).toBe(true);
+  });
+  test('timeout, conexión u otros no lo son', () => {
+    expect(esErrorDeMensaje(Object.assign(new Error('t'), { name: 'TimeoutError' }))).toBe(false);
+    expect(esErrorDeMensaje(new Error('caído'))).toBe(false);
+    expect(esErrorDeMensaje(undefined)).toBe(false);
+    expect(esErrorDeMensaje('texto')).toBe(false);
   });
 });

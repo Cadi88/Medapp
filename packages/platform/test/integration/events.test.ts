@@ -41,7 +41,7 @@ function evento(type = 'tenant.creado', tenantId = A): EventEnvelope {
   };
 }
 
-const pendientes = async () => (await migrator.query('select count(*)::int c from outbox where publicado_en is null')).rows[0].c as number;
+const pendientes = async () => (await migrator.query('select count(*)::int c from outbox where publicado_en is null and descartado_en is null')).rows[0].c as number;
 
 async function siguienteMensaje(stream: string, subject: string) {
   const js = jetstream(nc);
@@ -146,6 +146,35 @@ describe('outbox', () => {
   });
 });
 
+describe('robustez', () => {
+  const insertarCrudo = (id: string, type: string, payload: unknown) =>
+    migrator.query(
+      "insert into outbox (event_id, tenant_id, type, payload, creado_en) values ($1,$2,$3,$4::jsonb, now() - interval '1 minute')",
+      [id, A, type, JSON.stringify(payload)],
+    );
+
+  test('filas inválidas (type no seguro, payload gigante) se descartan y no bloquean a las de atrás', async () => {
+    const malo1 = uuidv7();
+    const malo2 = uuidv7();
+    await insertarCrudo(malo1, 'tipo con espacios', { trace_id: 'x' });
+    await insertarCrudo(malo2, 'tenant.gigante', { trace_id: 'x', data: 'x'.repeat(2 * 1024 * 1024) });
+    const bueno = evento('tenant.bueno');
+    await withTenant(app, A, (tx) => enqueueEvent(tx, bueno));
+    const errores: unknown[] = [];
+    publicador({ onError: (e) => errores.push(e) });
+    expect((await siguienteMensaje('EVENTOS', 'evt.tenant.bueno')).json.event_id).toBe(bueno.event_id);
+    await vi.waitFor(async () => expect(await pendientes()).toBe(0), { timeout: 10_000 });
+    const filas = (await migrator.query('select event_id, error, descartado_en, publicado_en from outbox where event_id = any($1)', [[malo1, malo2]])).rows;
+    expect(filas).toHaveLength(2);
+    for (const f of filas) {
+      expect(f.descartado_en).not.toBeNull();
+      expect(f.publicado_en).toBeNull();
+      expect(f.error).toBeTruthy();
+    }
+    expect(errores.length).toBeGreaterThanOrEqual(2);
+  });
+});
+
 describe('consumidor', () => {
   const publicarCrudo = async (subject: string, payload: string) => {
     await jetstream(nc).publish(subject, payload);
@@ -191,6 +220,39 @@ describe('consumidor', () => {
     expect(dlq.headers?.get('x-entregas')).toBe('5');
     expect(handler).toHaveBeenCalledTimes(5);
     expect((await migrator.query('select count(*)::int c from inbox')).rows[0].c).toBe(0);
+  });
+
+  test('reiniciar un consumidor con subjects distintos lo actualiza y recibe el nuevo subject', async () => {
+    const nombre = `c-${uuidv7()}`;
+    const h1 = vi.fn(async () => {});
+    const c1 = await consumeEvents({ pool: app, nc, consumidor: nombre, subjects: ['evt.tenant.a1'], handler: h1, backoffMs: () => 10 });
+    await c1.stop();
+    const h2 = vi.fn(async () => {});
+    const c2 = await consumeEvents({ pool: app, nc, consumidor: nombre, subjects: ['evt.tenant.a1', 'evt.tenant.a2'], handler: h2, backoffMs: () => 10 });
+    stoppers.push(() => c2.stop());
+    await publicarCrudo('evt.tenant.a2', JSON.stringify(evento('tenant.a2')));
+    await vi.waitFor(() => expect(h2).toHaveBeenCalledTimes(1), { timeout: 10_000 });
+  });
+
+  test('la DLQ distingue por consumidor: dos consumidores fallando el mismo evento dejan dos registros', async () => {
+    const fallo = vi.fn().mockRejectedValue(new Error('boom'));
+    const c1 = await consumidor({ subjects: ['evt.tenant.dos'], handler: fallo, maxEntregas: 2 });
+    const c2 = await consumidor({ subjects: ['evt.tenant.dos'], handler: fallo, maxEntregas: 2 });
+    await publicarCrudo('evt.tenant.dos', JSON.stringify(evento('tenant.dos')));
+    await vi.waitFor(async () => expect((await (await jetstreamManager(nc)).streams.info('DLQ')).state.messages).toBe(2), { timeout: 15_000 });
+    const cons = await jetstream(nc).consumers.get('DLQ', { filter_subjects: ['dlq.tenant.dos'] });
+    const nombres = new Set<string | undefined>();
+    for (let i = 0; i < 2; i++) nombres.add((await cons.next({ expires: 5000 }))?.headers?.get('x-consumidor'));
+    expect(nombres).toEqual(new Set([c1.nombre, c2.nombre]));
+  });
+
+  test('un type no seguro como subject va a dlq.invalido tras agotar entregas', async () => {
+    const handler = vi.fn().mockRejectedValue(new Error('boom'));
+    await consumidor({ subjects: ['evt.tenant.raro'], handler, maxEntregas: 2 });
+    await publicarCrudo('evt.tenant.raro', JSON.stringify(evento('tipo con espacios')));
+    const dlq = await siguienteMensaje('DLQ', 'dlq.invalido');
+    expect(dlq.headers?.get('x-error')).toBe('boom');
+    expect(handler).toHaveBeenCalledTimes(2);
   });
 
   test('un mensaje envenenado va a dlq.invalido y el consumidor sigue vivo', async () => {

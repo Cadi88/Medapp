@@ -4,7 +4,7 @@ import { eventEnvelopeSchema, type EventEnvelope } from '@consultorio/contracts'
 import type pg from 'pg';
 import { pino, type Logger } from 'pino';
 import { withTenant } from '../db/tenant.js';
-import { STREAM_EVENTOS, subjectDlq } from './streams.js';
+import { STREAM_EVENTOS, subjectDlq, tipoValido } from './streams.js';
 
 export type EventHandler = (e: EventEnvelope, tx: pg.PoolClient, ctx: { logger: Logger }) => Promise<void>;
 
@@ -31,10 +31,21 @@ export function backoffPorDefecto(numEntrega: number): number {
 }
 
 /** Cabeceras NATS no admiten saltos de línea: se colapsa el espacio en blanco y se trunca el mensaje. */
-export function cabecerasDlq(err: unknown, entregas: number): Record<string, string> {
+export function cabecerasDlq(err: unknown, entregas: number, consumidor = ''): Record<string, string> {
   const msg = (err instanceof Error ? err.message : String(err)).replace(/\s+/g, ' ').trim().slice(0, 500);
-  return { 'x-error': msg, 'x-entregas': String(entregas) };
+  return { 'x-error': msg, 'x-entregas': String(entregas), 'x-consumidor': consumidor };
 }
+
+const CONSUMIDOR_EXISTENTE = 10148;
+
+export function esConsumidorExistente(err: unknown): boolean {
+  const e = err as { code?: unknown; apiError?: () => { err_code?: number } };
+  const api = typeof e?.apiError === 'function' ? e.apiError() : undefined;
+  return api?.err_code === CONSUMIDOR_EXISTENTE || e?.code === CONSUMIDOR_EXISTENTE;
+}
+
+/** `dlq.<type>` si el type es seguro como subject; si no, `dlq.invalido`. */
+export const subjectDlqSeguro = (type: string): string => (tipoValido(type) ? subjectDlq(type) : 'dlq.invalido');
 
 const SUBJECT_INVALIDO = 'dlq.invalido';
 
@@ -49,19 +60,26 @@ export async function consumeEvents(o: ConsumeEventsOptions): Promise<{ stop(): 
   const logger = o.logger ?? pino({ level: 'silent' });
   const js = jetstream(o.nc);
   const jsm = await jetstreamManager(o.nc);
-  await jsm.consumers.add(STREAM_EVENTOS, {
-    durable_name: o.consumidor,
-    ack_policy: AckPolicy.Explicit,
-    filter_subjects: o.subjects,
-    ack_wait: 30e9,
-  });
+  const ACK_WAIT = 30e9;
+  try {
+    await jsm.consumers.add(STREAM_EVENTOS, {
+      durable_name: o.consumidor,
+      ack_policy: AckPolicy.Explicit,
+      filter_subjects: o.subjects,
+      ack_wait: ACK_WAIT,
+    });
+  } catch (err) {
+    // 10148: el durable ya existe con otra configuración (p. ej. cambió la lista de subjects en un despliegue).
+    if (!esConsumidorExistente(err)) throw err;
+    await jsm.consumers.update(STREAM_EVENTOS, o.consumidor, { filter_subjects: o.subjects, ack_wait: ACK_WAIT });
+  }
   const consumer = await js.consumers.get(STREAM_EVENTOS, o.consumidor);
   const messages = await consumer.consume({ max_messages: 1 });
 
   const aDlq = async (subject: string, msg: JsMsg, err: unknown, msgID: string): Promise<boolean> => {
     try {
       const h = natsHeaders();
-      for (const [k, v] of Object.entries(cabecerasDlq(err, msg.info.deliveryCount))) h.set(k, v);
+      for (const [k, v] of Object.entries(cabecerasDlq(err, msg.info.deliveryCount, o.consumidor))) h.set(k, v);
       await js.publish(subject, msg.data, { headers: h, msgID, timeout: 5000 });
       return true;
     } catch (dlqErr) {
@@ -94,7 +112,7 @@ export async function consumeEvents(o: ConsumeEventsOptions): Promise<{ stop(): 
     } catch (err) {
       if (decidirFallo(entrega, maxEntregas) === 'dlq') {
         log.error({ err, entrega }, 'entregas agotadas; a dead-letter');
-        if (await aDlq(subjectDlq(env.type), msg, err, `dlq-${env.event_id}`)) msg.term('entregas agotadas');
+        if (await aDlq(subjectDlqSeguro(env.type), msg, err, `dlq-${o.consumidor}-${env.event_id}`)) msg.term('entregas agotadas');
         else msg.nak(backoff(entrega));
       } else {
         log.warn({ err, entrega }, 'el handler falló; se reintentará');

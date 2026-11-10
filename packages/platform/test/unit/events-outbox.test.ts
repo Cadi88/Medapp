@@ -25,6 +25,22 @@ describe('envelopeToRow', () => {
 });
 
 describe('enqueueEvent', () => {
+  const tx = () => ({ query: vi.fn(async () => ({ rows: [] })) });
+  test.each(['mal tipo', 'a.>', '', 'a..b'])('rechaza type %j sin tocar la base', async (type) => {
+    const t = tx();
+    await expect(enqueueEvent(t as unknown as pg.PoolClient, { ...evento, type })).rejects.toThrow(/type inválido/);
+    expect(t.query).not.toHaveBeenCalled();
+  });
+  test('rechaza payload sobre el límite', async () => {
+    const t = tx();
+    await expect(enqueueEvent(t as unknown as pg.PoolClient, { ...evento, data: 'x'.repeat(200) }, 100)).rejects.toThrow(/demasiado grande/);
+    expect(t.query).not.toHaveBeenCalled();
+  });
+  test('acepta un payload dentro del límite', async () => {
+    const t = tx();
+    await enqueueEvent(t as unknown as pg.PoolClient, evento, 10_000);
+    expect(t.query).toHaveBeenCalledTimes(1);
+  });
   test('inserta una fila en outbox con la transacción del llamador', async () => {
     const query = vi.fn(async () => ({ rows: [] }));
     await enqueueEvent({ query } as unknown as pg.PoolClient, evento);

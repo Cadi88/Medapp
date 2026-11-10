@@ -2,7 +2,7 @@ import { jetstream } from '@nats-io/jetstream';
 import { headers as natsHeaders, type NatsConnection } from '@nats-io/transport-node';
 import type { EventEnvelope } from '@consultorio/contracts';
 import type pg from 'pg';
-import { headersPublicacion, subjectEvento } from './streams.js';
+import { MAX_PAYLOAD_BYTES, esErrorDeMensaje, headersPublicacion, subjectEvento, tipoValido } from './streams.js';
 
 export interface OutboxRow {
   event_id: string;
@@ -17,8 +17,10 @@ export function envelopeToRow(e: EventEnvelope): OutboxRow {
 }
 
 /** Inserta el evento en `outbox` dentro de la transacción del llamador (solo existe si hay commit). */
-export async function enqueueEvent(tx: pg.PoolClient, e: EventEnvelope): Promise<void> {
+export async function enqueueEvent(tx: pg.PoolClient, e: EventEnvelope, maxBytes: number = MAX_PAYLOAD_BYTES): Promise<void> {
+  if (!tipoValido(e.type)) throw new Error(`type inválido para subject NATS: ${JSON.stringify(e.type)}`);
   const r = envelopeToRow(e);
+  if (Buffer.byteLength(r.payload) > maxBytes) throw new Error(`evento demasiado grande (> ${maxBytes} bytes)`);
   await tx.query('INSERT INTO outbox (event_id, tenant_id, type, payload) VALUES ($1, $2, $3, $4::jsonb)', [
     r.event_id,
     r.tenant_id,
@@ -74,10 +76,11 @@ export function startOutboxPublisher(o: OutboxPublisherOptions): { stop(): Promi
     try {
       await client.query('BEGIN');
       const { rows } = await client.query<PendingRow>(
-        'SELECT event_id, type, payload FROM outbox WHERE publicado_en IS NULL ORDER BY creado_en, event_id LIMIT $1 FOR UPDATE SKIP LOCKED',
+        'SELECT event_id, type, payload FROM outbox WHERE publicado_en IS NULL AND descartado_en IS NULL ORDER BY creado_en, event_id LIMIT $1 FOR UPDATE SKIP LOCKED',
         [lote],
       );
       const hechos: string[] = [];
+      const descartados: Array<{ id: string; error: string }> = [];
       let falla: unknown;
       for (const row of rows) {
         try {
@@ -85,11 +88,20 @@ export function startOutboxPublisher(o: OutboxPublisherOptions): { stop(): Promi
           hechos.push(row.event_id);
           o.onPublicado?.(row.event_id);
         } catch (err) {
+          if (esErrorDeMensaje(err)) {
+            const motivo = err instanceof Error ? err.message : String(err);
+            descartados.push({ id: row.event_id, error: motivo });
+            o.onError?.(Object.assign(new Error(`evento ${row.event_id} descartado: ${motivo}`), { eventId: row.event_id }));
+            continue;
+          }
           falla = err;
           break;
         }
       }
       if (hechos.length > 0) await client.query('UPDATE outbox SET publicado_en = now() WHERE event_id = ANY($1::uuid[])', [hechos]);
+      for (const d of descartados) {
+        await client.query('UPDATE outbox SET descartado_en = now(), error = $2 WHERE event_id = $1', [d.id, d.error]);
+      }
       await client.query('COMMIT');
       if (falla) {
         o.onError?.(falla);

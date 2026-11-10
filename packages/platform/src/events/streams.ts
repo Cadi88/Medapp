@@ -9,6 +9,20 @@ const TREINTA_DIAS_NS = 30 * 24 * 3600 * 1e9;
 export const subjectEvento = (type: string): string => `evt.${type}`;
 export const subjectDlq = (type: string): string => `dlq.${type}`;
 
+export const MAX_PAYLOAD_BYTES = 1024 * 1024;
+const TYPE_RE = /^[a-z0-9_-]+(\.[a-z0-9_-]+)*$/;
+
+/** `type` seguro como sufijo de subject NATS (`evt.<type>` / `dlq.<type>`). */
+export const tipoValido = (type: string): boolean => typeof type === 'string' && TYPE_RE.test(type);
+
+/** Errores propios de un mensaje (subject/argumento inválido, max_payload): reintentar no sirve. */
+export function esErrorDeMensaje(err: unknown): boolean {
+  for (let e = err as { name?: string; cause?: unknown } | undefined, i = 0; e && i < 5; e = e.cause as typeof e, i++) {
+    if (e.name === 'InvalidSubjectError' || e.name === 'InvalidArgumentError') return true;
+  }
+  return false;
+}
+
 const TRACE_ID_RE = /^[0-9a-f]{32}$/;
 
 /** `traceparent` W3C derivado de `trace_id`; solo si es un trace id válido (32 hex, no todo ceros). */

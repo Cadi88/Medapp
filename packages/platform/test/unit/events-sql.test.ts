@@ -9,6 +9,12 @@ describe('outboxInboxSql', () => {
     expect(sql).toContain('WHERE publicado_en IS NULL');
     expect(sql).not.toMatch(/ROW LEVEL SECURITY/i);
   });
+  test('outbox lleva error/descartado_en y el índice parcial excluye descartados', () => {
+    const sql = outboxInboxSql('svc_app');
+    expect(sql).toContain('error text NULL');
+    expect(sql).toContain('descartado_en timestamptz NULL');
+    expect(sql).toContain('WHERE publicado_en IS NULL AND descartado_en IS NULL');
+  });
   test('concede SELECT, INSERT, UPDATE y revoca DELETE al rol de la app', () => {
     const sql = outboxInboxSql('svc_app');
     expect(sql).toContain('REVOKE ALL ON outbox, inbox FROM PUBLIC;');
