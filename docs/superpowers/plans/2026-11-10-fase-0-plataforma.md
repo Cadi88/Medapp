@@ -25,6 +25,9 @@
 - Logs estructurados con `tenant_id`, `trace_id`, `servicio`.
 - Región AWS `mx-central-1`; RDS y S3 cifrados con KMS; PITR con retención de 35 días.
 - Ningún servicio se despliega si falla su prueba de aislamiento entre tenants.
+- **Pruebas unitarias obligatorias (pedido del usuario):** cada paquete y servicio separa `test/unit/**` (lógica pura: sin Docker, sin red, sin base de datos; dependencias externas con dobles de prueba) de `test/integration/**` (Postgres/NATS reales con Testcontainers). Toda lógica que pueda probarse sin infraestructura —validaciones, mapeos, cálculo de hash, reglas de roles/MFA, construcción de SQL, manejo de errores, clasificación de rutas— tiene pruebas unitarias propias, aunque también esté cubierta por integración.
+- Scripts por paquete: `test:unit` (`vitest run --project unit`) y `test:integration` (`vitest run --project integration`); `test` corre ambos. Turbo expone `test:unit` para el ciclo rápido.
+- Cobertura con `@vitest/coverage-v8` medida sobre la suma de unit + integración: umbral mínimo **80 % de líneas y 80 % de ramas** por paquete; `pnpm test` falla si no se alcanza (excepto `infra` y `tests/e2e`).
 
 ## Review Focus
 
@@ -100,7 +103,7 @@ Fuera de esta fase: `apps/web`, cliente REST interno con circuit breaker (lo nec
 
 - [ ] **Step 1: Escribir el script de verificación** `scripts/verificar-entorno.sh` que falla si: `docker compose ps` no muestra `postgres`, `nats`, `minio` healthy; `psql` como `identidad_app` no conecta a `identidad_db`; `SELECT rolbypassrls FROM pg_roles WHERE rolname='identidad_app'` no devuelve `f`; `curl -s localhost:8222/jsz` no contiene `"config"` (JetStream activo).
 - [ ] **Step 2: Ejecutarlo y ver que falla.** Run: `bash scripts/verificar-entorno.sh` — Expected: FAIL (no hay compose).
-- [ ] **Step 3: Crear el monorepo** (workspaces `apps/*`, `packages/*`, `infra`, `tests/*`; turbo con tareas `build`, `test`, `lint`, `typecheck`) y la regla ESLint `import/no-restricted-paths` que prohíbe importar `apps/*` desde otro `apps/*`.
+- [ ] **Step 3: Crear el monorepo** (workspaces `apps/*`, `packages/*`, `infra`, `tests/*`; turbo con tareas `build`, `test`, `test:unit`, `test:integration`, `lint`, `typecheck`; `vitest.config.base.ts` compartido que define los proyectos `unit` → `test/unit/**/*.test.ts` e `integration` → `test/integration/**/*.test.ts` y la cobertura v8 con umbrales de Global Constraints) y la regla ESLint `import/no-restricted-paths` que prohíbe importar `apps/*` desde otro `apps/*`.
 - [ ] **Step 4: Crear `docker-compose.yml`** (postgres:16, `nats:2 -js -m 8222`, minio) con healthchecks, y `docker/postgres/init.sql` que por cada servicio (`identidad`, `auditoria`) crea `<svc>_db`, `<svc>_migrator` (OWNER de la base) y `<svc>_app` (`NOBYPASSRLS`, `CONNECT` y `USAGE` en `public`, más `ALTER DEFAULT PRIVILEGES FOR ROLE <svc>_migrator ... GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO <svc>_app`).
 - [ ] **Step 5: Verificar.** Run: `docker compose up -d --wait && bash scripts/verificar-entorno.sh && pnpm lint` — Expected: PASS.
 - [ ] **Step 6: Commit** `chore: monorepo y entorno local`.
