@@ -70,6 +70,22 @@ describe('aislamiento por tenant (RLS)', () => {
     expect(r.rowCount).toBe(0);
   });
 
+  test('si fn traga un error de base de datos, withTenant rechaza y nada persiste', async () => {
+    await expect(
+      withTenant(app, A, async (tx) => {
+        await tx.query("insert into nota values ($1,'persistente?')", [A]);
+        try {
+          await tx.query("insert into nota values ($1,'ajeno')", [B]);
+        } catch {
+          // error tragado: la transacción queda abortada
+        }
+        return 'ok';
+      }),
+    ).rejects.toThrow(/abortada/);
+    const r = await withTenant(app, A, (tx) => tx.query("select 1 from nota where texto in ('persistente?','ajeno')"));
+    expect(r.rowCount).toBe(0);
+  });
+
   test('el rol de la aplicación no tiene BYPASSRLS ni es superusuario', async () => {
     const r = await app.query('select rolsuper, rolbypassrls from pg_roles where rolname = current_user');
     expect(r.rows[0]).toEqual({ rolsuper: false, rolbypassrls: false });

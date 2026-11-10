@@ -14,7 +14,9 @@ export async function withTenant<T>(pool: pg.Pool, tenantId: string, fn: (tx: pg
     await client.query('BEGIN');
     await client.query("SELECT set_config('app.tenant_id', $1, true)", [tenantId]);
     const result = await fn(client);
-    await client.query('COMMIT');
+    const commit = await client.query('COMMIT');
+    // Si la transacción quedó abortada, Postgres responde COMMIT con la etiqueta ROLLBACK y sin error.
+    if (commit.command === 'ROLLBACK') throw new Error('transacción abortada; se hizo rollback');
     return result;
   } catch (err) {
     try {

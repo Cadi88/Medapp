@@ -2,14 +2,14 @@ import { describe, expect, test, vi } from 'vitest';
 import type pg from 'pg';
 import { uuidv7, withTenant } from '../../src/index.js';
 
-function fakePool(opts: { failOn?: string } = {}) {
+function fakePool(opts: { failOn?: string; commitCommand?: string } = {}) {
   const calls: string[] = [];
   const release = vi.fn();
   const client = {
     query: vi.fn(async (sql: string) => {
       calls.push(sql);
       if (opts.failOn && sql.startsWith(opts.failOn)) throw new Error('boom ' + sql);
-      return { rows: [] };
+      return { rows: [], command: sql === 'COMMIT' ? (opts.commitCommand ?? 'COMMIT') : 'SELECT' };
     }),
     release,
   };
@@ -44,6 +44,12 @@ describe('withTenant', () => {
     ).rejects.toThrow('x');
     expect(calls.at(-1)).toBe('ROLLBACK');
     expect(release).toHaveBeenCalledWith();
+  });
+
+  test('rechaza si Postgres convirtió el COMMIT en ROLLBACK y libera la conexión', async () => {
+    const { pool, release } = fakePool({ commitCommand: 'ROLLBACK' });
+    await expect(withTenant(pool, uuidv7(), async () => 'x')).rejects.toThrow('transacción abortada');
+    expect(release).toHaveBeenCalledTimes(1);
   });
 
   test('si el ROLLBACK también falla relanza el error original y destruye la conexión', async () => {
