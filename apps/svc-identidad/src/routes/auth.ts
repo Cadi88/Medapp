@@ -1,5 +1,6 @@
 import type { FastifyPluginAsync, FastifyRequest } from 'fastify';
 import type { Auth } from '../auth.js';
+import { esAltaDirecta } from '../sign-up-guard.js';
 
 export interface AuthRoutesOptions {
   auth: Pick<Auth, 'handler'>;
@@ -30,6 +31,10 @@ export const authRoutes: FastifyPluginAsync<AuthRoutesOptions> = async (app, { a
     method: ['GET', 'POST'],
     url: '/auth/*',
     handler: async (req, reply) => {
+      // Defensa en profundidad: el hook de Better Auth también bloquea esto.
+      if (esAltaDirecta(req.url, true)) {
+        return reply.code(404).send({ code: 'NO_ENCONTRADO', message: 'Recurso no encontrado' });
+      }
       const res = await auth.handler(aWebRequest(req));
       reply.code(res.status);
       res.headers.forEach((valor, nombre) => {

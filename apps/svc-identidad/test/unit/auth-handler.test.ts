@@ -66,3 +66,17 @@ describe('authRoutes (puente Fastify a Better Auth)', () => {
     expect(res.json()).toEqual({ code: 'INTERNO', message: 'Error interno' });
   });
 });
+
+describe('authRoutes: alta directa bloqueada', () => {
+  test.each(['/auth/sign-up/email', '/auth/sign-up/otro', '/auth/sign-up'])('%s → 404 sin llegar a Better Auth', async (url) => {
+    let llamado = false;
+    const a = await montar(async () => {
+      llamado = true;
+      return new Response('{}');
+    });
+    const res = await a.inject({ method: 'POST', url, payload: { email: 'a@b.mx' } });
+    expect(res.statusCode).toBe(404);
+    expect(res.json().code).toBe('NO_ENCONTRADO');
+    expect(llamado).toBe(false);
+  });
+});

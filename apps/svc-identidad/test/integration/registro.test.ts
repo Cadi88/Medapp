@@ -212,3 +212,30 @@ describe('publicación de eventos', () => {
     expect(pendientes[0].c).toBe(0);
   });
 });
+
+describe('alta directa por Better Auth', () => {
+  test.each(['/auth/sign-up/email', '/auth/sign-up/email?x=1'])('POST %s → 404 y no crea usuario', async (url) => {
+    const r = await app.inject({
+      method: 'POST',
+      url,
+      payload: { name: 'Intruso', email: 'intruso@x.mx', password: 'clave-de-prueba-123' },
+      headers: { origin: 'http://localhost:3000' },
+    });
+    expect(r.statusCode).toBe(404);
+    expect(await q(`select 1 from "user" where email='intruso@x.mx'`)).toHaveLength(0);
+  });
+
+  test('el hook de Better Auth también bloquea (sin pasar por la ruta Fastify)', async () => {
+    const { createAuth } = await import('../../src/auth.js');
+    const auth = createAuth({ database: env.appPool, secret: 'secreto-de-pruebas-'.repeat(3), baseURL: 'http://localhost:3000' });
+    const res = await auth.handler(
+      new Request('http://localhost:3000/auth/sign-up/email', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ name: 'I', email: 'intruso2@x.mx', password: 'clave-de-prueba-123' }),
+      }),
+    );
+    expect(res.status).toBe(404);
+    expect(await q(`select 1 from "user" where email='intruso2@x.mx'`)).toHaveLength(0);
+  });
+});

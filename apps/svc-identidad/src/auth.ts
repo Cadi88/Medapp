@@ -1,6 +1,8 @@
 import { betterAuth, type BetterAuthOptions } from 'better-auth';
+import { APIError, createAuthMiddleware } from 'better-auth/api';
 import { twoFactor } from 'better-auth/plugins';
 import { uuidv7 } from 'uuidv7';
+import { esAltaDirecta } from './sign-up-guard.js';
 
 export interface AuthOptions {
   /** Pool de `pg` (producción) o adaptador de Better Auth (pruebas unitarias). */
@@ -24,6 +26,12 @@ export function createAuth(o: AuthOptions) {
     basePath: '/auth',
     emailAndPassword: { enabled: true, minPasswordLength: 10, autoSignIn: false },
     advanced: { database: { generateId: () => uuidv7() } },
+    // Alta directa por HTTP cerrada (el alta pasa por /registro, que es atómico y emite eventos).
+    hooks: {
+      before: createAuthMiddleware(async (ctx) => {
+        if (esAltaDirecta(ctx.path, ctx.request !== undefined)) throw new APIError('NOT_FOUND', { message: 'Not found' });
+      }),
+    },
     plugins: [twoFactor({ issuer: 'Consultorio' })],
   });
 }
