@@ -15,10 +15,14 @@ const TYPE_RE = /^[a-z0-9_-]+(\.[a-z0-9_-]+)*$/;
 /** `type` seguro como sufijo de subject NATS (`evt.<type>` / `dlq.<type>`). */
 export const tipoValido = (type: string): boolean => typeof type === 'string' && TYPE_RE.test(type);
 
-/** Errores propios de un mensaje (subject/argumento inválido, max_payload): reintentar no sirve. */
+/**
+ * Errores propios de un mensaje (subject inválido, max_payload): reintentar no sirve. Cualquier otro error
+ * (incluidos otros InvalidArgumentError: cabeceras no soportadas, timeout inválido) es de transporte/configuración.
+ */
 export function esErrorDeMensaje(err: unknown): boolean {
-  for (let e = err as { name?: string; cause?: unknown } | undefined, i = 0; e && i < 5; e = e.cause as typeof e, i++) {
-    if (e.name === 'InvalidSubjectError' || e.name === 'InvalidArgumentError') return true;
+  for (let e = err as { name?: string; message?: string; cause?: unknown } | undefined, i = 0; e && i < 5; e = e.cause as typeof e, i++) {
+    if (e.name === 'InvalidSubjectError') return true;
+    if (e.name === 'InvalidArgumentError' && /max_payload/.test(String(e.message))) return true;
   }
   return false;
 }

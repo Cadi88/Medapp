@@ -61,14 +61,25 @@ describe('tipoValido', () => {
 });
 
 describe('esErrorDeMensaje', () => {
-  test('subject/argumento inválido (también como causa) es de mensaje', () => {
-    expect(esErrorDeMensaje(Object.assign(new Error('x'), { name: 'InvalidArgumentError' }))).toBe(true);
-    expect(esErrorDeMensaje(Object.assign(new Error('x'), { name: 'InvalidSubjectError' }))).toBe(true);
-    const envuelto = new Error('w', { cause: Object.assign(new Error('x'), { name: 'InvalidArgumentError' }) });
-    expect(esErrorDeMensaje(envuelto)).toBe(true);
+  const err = (name: string, message: string, cause?: unknown) => Object.assign(new Error(message, { cause }), { name });
+  test('InvalidSubjectError y max_payload son por-mensaje', () => {
+    expect(esErrorDeMensaje(err('InvalidSubjectError', "illegal subject: 'a b'"))).toBe(true);
+    expect(esErrorDeMensaje(err('InvalidArgumentError', "'payload' max_payload size exceeded"))).toBe(true);
   });
-  test('timeout, conexión u otros no lo son', () => {
-    expect(esErrorDeMensaje(Object.assign(new Error('t'), { name: 'TimeoutError' }))).toBe(false);
+  test('también cuando vienen envueltos en cause', () => {
+    expect(esErrorDeMensaje(new Error('w', { cause: err('InvalidSubjectError', 'x') }))).toBe(true);
+    expect(esErrorDeMensaje(new Error('w', { cause: err('InvalidArgumentError', 'max_payload size exceeded') }))).toBe(true);
+  });
+  test.each([
+    ['InvalidArgumentError', "'headers' are not available on this server"],
+    ['InvalidArgumentError', "'timeout' must be greater than 0"],
+    ['InvalidArgumentError', "'reply', 'noMux' are mutually exclusive"],
+    ['TimeoutError', 'timeout'],
+  ])('%s "%s" NO es por-mensaje', (name, msg) => {
+    expect(esErrorDeMensaje(err(name, msg))).toBe(false);
+    expect(esErrorDeMensaje(new Error('w', { cause: err(name, msg) }))).toBe(false);
+  });
+  test('valores no-error', () => {
     expect(esErrorDeMensaje(new Error('caído'))).toBe(false);
     expect(esErrorDeMensaje(undefined)).toBe(false);
     expect(esErrorDeMensaje('texto')).toBe(false);
