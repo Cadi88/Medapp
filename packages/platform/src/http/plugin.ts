@@ -46,6 +46,11 @@ async function autenticar(request: FastifyRequest, key: JWTVerifyGetKey): Promis
   }
 }
 
+/**
+ * Autenticación JWT, contexto, trace id, logs y formato único de errores.
+ * DEBE registrarse antes que cualquier ruta o plugin hijo: setErrorHandler/setNotFoundHandler no
+ * llegan a plugins registrados antes. Los servicios deben construir su app con `createHttpApp`.
+ */
 export const platformPlugin = fp<PlatformPluginOptions>(
   async (app, opts) => {
     if (!opts.verificador && !opts.jwksUrl) {
@@ -60,6 +65,7 @@ export const platformPlugin = fp<PlatformPluginOptions>(
       const traceId = sanitizeTraceId(request.headers['x-trace-id']);
       reply.header('x-trace-id', traceId);
       request.log = request.log.child({ trace_id: traceId });
+      reply.log = request.log;
       if (isPublicPath(request.url, rutasPublicas)) {
         request.ctx = { traceId } as RequestCtx;
         return;
@@ -67,6 +73,7 @@ export const platformPlugin = fp<PlatformPluginOptions>(
       const auth = await autenticar(request, key);
       request.ctx = { ...auth, traceId };
       request.log = request.log.child({ tenant_id: auth.tenantId });
+      reply.log = request.log;
     });
 
     app.setNotFoundHandler((_req, reply) => {

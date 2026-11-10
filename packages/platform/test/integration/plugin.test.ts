@@ -3,7 +3,7 @@ import Fastify from 'fastify';
 import { SignJWT, createLocalJWKSet, exportJWK, generateKeyPair } from 'jose';
 import { afterAll, beforeAll, describe, expect, test } from 'vitest';
 import { z } from 'zod';
-import { AppError, createLogger, platformPlugin, requireRole } from '../../src/index.js';
+import { AppError, createHttpApp, createLogger, platformPlugin, requireRole } from '../../src/index.js';
 import { startTestJwks, type TestJwks } from '../../src/testing/index.js';
 
 const T = '0194a1b2-0000-7000-8000-000000000001';
@@ -205,6 +205,8 @@ describe('logs', () => {
       .map((x) => JSON.parse(x) as Record<string, unknown>)
       .find((x) => x.msg === 'dentro del handler');
     expect(l).toMatchObject({ servicio: 'svc-prueba', tenant_id: T, trace_id: 'log-1' });
+    const c = logLines.map((x) => JSON.parse(x) as Record<string, unknown>).find((x) => x.msg === 'request completed');
+    expect(c).toMatchObject({ servicio: 'svc-prueba', tenant_id: T, trace_id: 'log-1' });
     expect(logLines.join('')).not.toContain(token);
   });
   test('el 500 se registra con stack', async () => {
@@ -238,6 +240,49 @@ describe('registro', () => {
       .setExpirationTime('5m')
       .sign(privateKey);
     expect((await a.inject({ url: '/privada', headers: auth(t) })).statusCode).toBe(200);
+    await a.close();
+  });
+});
+
+describe('createHttpApp', () => {
+  test('(a) ruta/plugin hijo posterior que lanza Error → 500 uniforme sin filtrar', async () => {
+    const a = await createHttpApp({ servicio: 's', plugin: { jwksUrl: jwks.url } });
+    await a.register(async (child) => {
+      child.get('/hijo', async () => {
+        throw new Error('secreto interno');
+      });
+    });
+    a.get('/raiz', async () => {
+      throw new Error('secreto interno');
+    });
+    const h = auth(await jwks.sign(claims));
+    for (const url of ['/hijo', '/raiz']) {
+      const r = await a.inject({ url, headers: h });
+      expect(r.statusCode).toBe(500);
+      expect(r.json()).toEqual({ code: 'INTERNO', message: 'Error interno' });
+      expect(r.body).not.toContain('secreto');
+    }
+    const nf = await a.inject({ url: '/nada', headers: h });
+    expect(nf.json()).toEqual({ code: 'NO_ENCONTRADO', message: 'Recurso no encontrado' });
+    await a.close();
+  });
+  test('(b) URL malformada → 400 uniforme con x-trace-id', async () => {
+    const a = await createHttpApp({ servicio: 's', plugin: { jwksUrl: jwks.url } });
+    const r = await a.inject({ url: '/%zz', headers: { 'x-trace-id': 'bad-1' } });
+    expect(r.statusCode).toBe(400);
+    expect(r.json()).toEqual({ code: 'VALIDACION', message: 'Solicitud inválida' });
+    expect(r.headers['x-trace-id']).toBe('bad-1');
+    const r2 = await a.inject({ url: '/%zz' });
+    expect(r2.headers['x-trace-id']).toMatch(/^[a-f0-9]{32}$/);
+    await a.close();
+  });
+  test('(c) createHttpApp es el camino seguro: el plugin se registra primero y acepta opciones de Fastify', async () => {
+    const a = await createHttpApp({ servicio: 's', plugin: { jwksUrl: jwks.url, rutasPublicas: ['/p'] }, fastify: { bodyLimit: 10 } });
+    a.get('/p', async (req) => ({ t: req.ctx.traceId }));
+    expect((await a.inject('/p')).statusCode).toBe(200);
+    const big = await a.inject({ method: 'POST', url: '/p', headers: { 'content-type': 'application/json' }, payload: JSON.stringify({ x: 'y'.repeat(50) }) });
+    expect(big.statusCode).toBe(413);
+    expect(big.json().code).toBe('VALIDACION');
     await a.close();
   });
 });

@@ -16,3 +16,5 @@ export { platformPlugin, requireRole } from './http/plugin.js';
 export type { PlatformPluginOptions, RequestCtx } from './http/plugin.js';
 export { isPublicPath, sanitizeTraceId } from './http/public-routes.js';
 export { createLogger, initTelemetry, shutdownTelemetry } from './observability.js';
+export { createHttpApp } from './http/app.js';
+export type { HttpAppOptions } from './http/app.js';
