@@ -17,6 +17,7 @@
   "devDependencies": {
     "@vitest/coverage-v8": "^5.1.0",
     "eslint": "^9.39.5",
+    "eslint-import-resolver-typescript": "^4.4.5",
     "eslint-plugin-import": "^2.32.0",
     "turbo": "^2.11.10",
     "typescript": "^5.9.3",

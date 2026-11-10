@@ -14,12 +14,28 @@ const zonas = [
   { target: './packages', from: './apps', message: 'packages/* no puede depender de apps/*.' },
 ];
 
+// Imports por nombre de paquete (vía symlink de node_modules): @consultorio/<app> y @consultorio/svc-<app>.
+const patronesApps = apps.flatMap((app) => [`@consultorio/${app}`, `@consultorio/${app}/*`, `@consultorio/svc-${app}`, `@consultorio/svc-${app}/*`]);
+
 export default tseslint.config(
   { ignores: ['**/node_modules/**', '**/dist/**', '**/coverage/**', '**/.turbo/**', '.superpowers/**'] },
   ...tseslint.configs.recommended,
   {
-    files: ['**/*.ts'],
+    files: ['**/*.{ts,tsx,mts}'],
     plugins: { import: importPlugin },
-    rules: { 'import/no-restricted-paths': ['error', { zones: zonas }] },
+    settings: {
+      'import/resolver': { typescript: { project: ['tsconfig.base.json'], alwaysTryTypes: false } },
+    },
+    rules: {
+      'import/no-restricted-paths': ['error', { zones: zonas }],
+      ...(patronesApps.length
+        ? {
+            'no-restricted-imports': [
+              'error',
+              { patterns: [{ group: patronesApps, message: 'apps/* no se importan por nombre de paquete; extraer a packages/*.' }] },
+            ],
+          }
+        : {}),
+    },
   },
 );
