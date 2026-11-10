@@ -120,7 +120,7 @@ Regla de dependencias: `apps/svc-*` pueden depender de `packages/*`, nunca de ot
 ### 3.1 Multi-tenancy (todos los servicios)
 - **Tenant = consultorio.** Un usuario puede pertenecer a varios consultorios mediante `membresia(usuario_id, tenant_id, rol)`. El JWT incluye el `tenant_id` activo y el rol.
 - Toda tabla de negocio tiene `tenant_id uuid NOT NULL` y política RLS:
-  `USING (tenant_id = current_setting('app.tenant_id')::uuid)` y el mismo `WITH CHECK`.
+  `USING (tenant_id = NULLIF(current_setting('app.tenant_id', true), '')::uuid)` y el mismo `WITH CHECK` (sin tenant fijado → cero filas, nunca error).
 - Los servicios se conectan con un rol **sin `BYPASSRLS`** y sin ser dueño de las tablas. Las migraciones corren con un rol distinto.
 - `packages/platform` abre cada transacción con `SET LOCAL app.tenant_id = $1`; el código de negocio no puede omitirlo.
 - Cada servicio tiene una prueba que intenta leer/escribir datos de otro tenant y debe fallar.
