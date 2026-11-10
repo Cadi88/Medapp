@@ -6,7 +6,11 @@ import type pg from 'pg';
 import { createAuth } from './auth.js';
 import { publicJwkFrom } from './jwt-keys.js';
 import { authRoutes } from './routes/auth.js';
+import { datosFiscalesRoutes } from './routes/datos-fiscales.js';
+import { miembrosRoutes } from './routes/miembros.js';
+import { perfilRoutes } from './routes/perfil.js';
 import { createRegistroDeps, registroRoutes } from './routes/registro.js';
+import { sesionRoutes } from './routes/sesion.js';
 
 export interface ServerOptions {
   /** Pool del rol `identidad_app`. */
@@ -18,7 +22,7 @@ export interface ServerOptions {
   betterAuth: { secret: string; baseURL: string };
 }
 
-/** Rutas sin JWT de tenant. `/tenants/mios` y `/sesion/tenant` usan la sesión de Better Auth (Task 7). */
+/** Rutas sin JWT de tenant. `/tenants/mios` y `/sesion/tenant` usan la sesión de Better Auth. */
 export const RUTAS_PUBLICAS = ['/registro', '/auth/*', '/.well-known/jwks.json', '/tenants/mios', '/sesion/tenant'];
 
 export async function buildServer(o: ServerOptions): Promise<FastifyInstance> {
@@ -31,6 +35,10 @@ export async function buildServer(o: ServerOptions): Promise<FastifyInstance> {
   const auth = createAuth({ database: o.pool, secret: o.betterAuth.secret, baseURL: o.betterAuth.baseURL });
   await app.register(authRoutes, { auth });
   await app.register(registroRoutes, { deps: createRegistroDeps(o.pool, auth, app.log) });
+  await app.register(sesionRoutes, { auth, pool: o.pool, jwtPrivateJwk: o.jwtPrivateJwk });
+  await app.register(miembrosRoutes, { auth, pool: o.pool });
+  await app.register(perfilRoutes, { pool: o.pool });
+  await app.register(datosFiscalesRoutes, { pool: o.pool });
 
   if (o.nc) {
     const publicador = startOutboxPublisher({
