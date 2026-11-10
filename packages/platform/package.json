@@ -15,7 +15,9 @@
       "default": "./dist/testing/index.js"
     }
   },
-  "files": ["dist"],
+  "files": [
+    "dist"
+  ],
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc --noEmit",
@@ -25,7 +27,11 @@
     "test:integration": "vitest run --project integration --passWithNoTests"
   },
   "dependencies": {
+    "@consultorio/contracts": "workspace:*",
+    "@nats-io/jetstream": "^3.4.0",
+    "@nats-io/transport-node": "^3.4.0",
     "pg": "^8.13.0",
+    "pino": "^10.4.0",
     "testcontainers": "^11.0.0",
     "uuidv7": "^1.2.1"
   },
