@@ -1,0 +1,52 @@
+services:
+  postgres:
+    image: postgres:16
+    ports: ["5432:5432"]
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres_local_dev}
+      IDENTIDAD_MIGRATOR_PASSWORD: ${IDENTIDAD_MIGRATOR_PASSWORD:-identidad_migrator_local_dev}
+      IDENTIDAD_APP_PASSWORD: ${IDENTIDAD_APP_PASSWORD:-identidad_app_local_dev}
+      AUDITORIA_MIGRATOR_PASSWORD: ${AUDITORIA_MIGRATOR_PASSWORD:-auditoria_migrator_local_dev}
+      AUDITORIA_APP_PASSWORD: ${AUDITORIA_APP_PASSWORD:-auditoria_app_local_dev}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./docker/postgres/init.sql:/sql/init.sql:ro
+      - ./docker/postgres/init.sh:/docker-entrypoint-initdb.d/00-init.sh:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d postgres"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  nats:
+    image: nats:2-alpine
+    command: ["-js", "-m", "8222", "-sd", "/data"]
+    ports: ["4222:4222", "8222:8222"]
+    volumes:
+      - natsdata:/data
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://localhost:8222/healthz || exit 1"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  minio:
+    image: cgr.dev/chainguard/minio:latest  # minio/minio ya no se publica en Docker Hub; imagen mantenida por Chainguard
+    user: root
+    command: ["server", "/data", "--console-address", ":9001"]
+    ports: ["9000:9000", "9001:9001"]
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minio_local}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minio_local_dev_pw}
+    volumes:
+      - miniodata:/data
+    healthcheck:
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/9000 && printf 'GET /minio/health/live HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n' >&3 && read -r linea <&3 && [[ $$linea == *' 200 '* ]]"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+volumes:
+  pgdata:
+  natsdata:
+  miniodata:
