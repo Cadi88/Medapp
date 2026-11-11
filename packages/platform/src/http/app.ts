@@ -1,7 +1,7 @@
 import Fastify, { type FastifyInstance, type FastifyReply, type FastifyServerOptions } from 'fastify';
 import { createLogger } from '../observability.js';
 import { mapError } from './errors.js';
-import { platformPlugin, type PlatformPluginOptions } from './plugin.js';
+import { platformPlugin, RUTA_SALUD, type PlatformPluginOptions } from './plugin.js';
 import { sanitizeTraceId } from './public-routes.js';
 
 export interface HttpAppOptions {
@@ -35,5 +35,6 @@ export async function createHttpApp(o: HttpAppOptions): Promise<FastifyInstance>
   };
   const app = Fastify(opts) as unknown as FastifyInstance;
   await app.register(platformPlugin, { servicio: o.servicio, ...o.plugin });
+  app.get(RUTA_SALUD, () => ({ ok: true }));
   return app;
 }

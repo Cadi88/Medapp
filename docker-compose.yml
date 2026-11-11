@@ -46,6 +46,62 @@ services:
       timeout: 3s
       retries: 20
 
+  # --- Servicios de la aplicación (perfil `app`): docker compose --profile app up -d --build --wait ---
+  # Requieren .env (bash scripts/generar-dev-env.sh). Solo el gateway publica puerto.
+  svc-identidad:
+    profiles: ["app"]
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.service
+      args: { APP: svc-identidad }
+    environment:
+      PORT: "3001"
+      DATABASE_URL: postgres://identidad_app:${IDENTIDAD_APP_PASSWORD:-identidad_app_local_dev}@postgres:5432/identidad_db
+      MIGRATOR_DATABASE_URL: postgres://identidad_migrator:${IDENTIDAD_MIGRATOR_PASSWORD:-identidad_migrator_local_dev}@postgres:5432/identidad_db
+      NATS_URL: nats://nats:4222
+      JWT_PRIVATE_JWK: ${JWT_PRIVATE_JWK:?falta JWT_PRIVATE_JWK; ejecuta scripts/generar-dev-env.sh}
+      BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?falta BETTER_AUTH_SECRET; ejecuta scripts/generar-dev-env.sh}
+      # Origen público de la API (el gateway): Better Auth solo acepta POST con cookies cuyo Origin coincida.
+      BETTER_AUTH_URL: ${BETTER_AUTH_URL:-http://localhost:8080}
+    depends_on:
+      postgres: { condition: service_healthy }
+      nats: { condition: service_healthy }
+
+  svc-auditoria:
+    profiles: ["app"]
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.service
+      args: { APP: svc-auditoria }
+    environment:
+      PORT: "3003"
+      DATABASE_URL: postgres://auditoria_app:${AUDITORIA_APP_PASSWORD:-auditoria_app_local_dev}@postgres:5432/auditoria_db
+      MIGRATOR_DATABASE_URL: postgres://auditoria_migrator:${AUDITORIA_MIGRATOR_PASSWORD:-auditoria_migrator_local_dev}@postgres:5432/auditoria_db
+      NATS_URL: nats://nats:4222
+      JWKS_URL: http://svc-identidad:3001/.well-known/jwks.json
+    depends_on:
+      postgres: { condition: service_healthy }
+      nats: { condition: service_healthy }
+      svc-identidad: { condition: service_healthy }
+
+  gateway:
+    profiles: ["app"]
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.service
+      args: { APP: gateway }
+    ports: ["8080:8080"]
+    environment:
+      PORT: "8080"
+      JWKS_URL: http://svc-identidad:3001/.well-known/jwks.json
+      IDENTIDAD_URL: http://svc-identidad:3001
+      AUDITORIA_URL: http://svc-auditoria:3003
+      # En local todo llega de una sola IP: límite holgado para que la E2E repetida no choque con el rate limit.
+      LIMITE_PUBLICO_POR_MIN: ${LIMITE_PUBLICO_POR_MIN:-1000}
+    depends_on:
+      svc-identidad: { condition: service_healthy }
+      svc-auditoria: { condition: service_healthy }
+
 volumes:
   pgdata:
   natsdata:

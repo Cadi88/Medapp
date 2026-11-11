@@ -1,0 +1,38 @@
+# Imagen de un servicio del monorepo. Uso: docker build -f docker/Dockerfile.service --build-arg APP=gateway .
+# APP = nombre de la carpeta en apps/ (gateway, svc-identidad, svc-auditoria).
+ARG NODE_IMAGE=node:24-slim
+
+# 1) Poda del monorepo: solo lo que necesita la app (mejor caché de capas).
+FROM ${NODE_IMAGE} AS podador
+ARG APP
+RUN npm install -g turbo@^2.11.10
+WORKDIR /repo
+COPY . .
+RUN turbo prune "@consultorio/${APP}" --docker
+
+# 2) Instalación con lockfile congelado, compilación y despliegue solo con dependencias de producción.
+FROM ${NODE_IMAGE} AS constructor
+ARG APP
+ENV PNPM_HOME=/pnpm
+ENV PATH=$PNPM_HOME:$PATH
+RUN corepack enable
+WORKDIR /repo
+COPY --from=podador /repo/out/json/ .
+COPY --from=podador /repo/out/pnpm-lock.yaml ./pnpm-lock.yaml
+RUN pnpm install --frozen-lockfile
+COPY --from=podador /repo/out/full/ .
+# turbo prune no incluye los archivos de la raíz que no son de un paquete.
+COPY tsconfig.base.json ./
+RUN pnpm --filter "@consultorio/${APP}..." run build
+RUN pnpm --filter "@consultorio/${APP}" --prod --legacy deploy /prod/app
+
+# 3) Runtime mínimo, sin herramientas de desarrollo y sin root.
+FROM ${NODE_IMAGE} AS runtime
+ENV NODE_ENV=production
+WORKDIR /app
+COPY --from=constructor --chown=node:node /prod/app ./
+USER node
+HEALTHCHECK --interval=5s --timeout=3s --start-period=20s --retries=12 \
+  CMD ["node", "-e", "fetch('http://127.0.0.1:'+(process.env.PORT||3000)+'/salud').then(r=>process.exit(r.ok?0:1),()=>process.exit(1))"]
+# Cada main.ts corre sus propias migraciones antes de escuchar.
+CMD ["node", "dist/main.js"]

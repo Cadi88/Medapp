@@ -29,6 +29,9 @@ declare module 'fastify' {
   }
 }
 
+/** Ruta pública de salud que `createHttpApp` registra en todo servicio. */
+export const RUTA_SALUD = '/salud';
+
 const BEARER_RE = /^Bearer ([A-Za-z0-9\-._~+/]+=*)$/i;
 const noAutenticado = (): AppError => new AppError('NO_AUTENTICADO', 'No autenticado', 401);
 
@@ -57,7 +60,8 @@ export const platformPlugin = fp<PlatformPluginOptions>(
       throw new Error('platformPlugin requiere `jwksUrl` o `verificador`');
     }
     const key: JWTVerifyGetKey = opts.verificador ?? createRemoteJWKSet(new URL(opts.jwksUrl as string));
-    const rutasPublicas = opts.rutasPublicas ?? [];
+    // `/salud` (healthcheck de contenedor, ver createHttpApp) es pública en todo servicio.
+    const rutasPublicas = [...(opts.rutasPublicas ?? []), RUTA_SALUD];
 
     app.decorateRequest('ctx', undefined as unknown as RequestCtx);
 
