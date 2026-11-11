@@ -1,0 +1,155 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  AWS_REGION: mx-central-1
+
+jobs:
+  verificar:
+    name: Verificar (lint, tipos, pruebas)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # turbo --filter=...[origin/main] necesita el historial
+
+      # La versión de pnpm sale de "packageManager" en package.json.
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      # En PR solo lo afectado respecto a main; en push a main (sin base de comparación útil) todo.
+      - name: Filtro de turbo
+        id: filtro
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            echo "args=--filter=...[origin/main]" >> "$GITHUB_OUTPUT"
+          else
+            echo "args=" >> "$GITHUB_OUTPUT"
+          fi
+
+      # Incluye eslint de la raíz; es barato, así que se corre completo.
+      - run: pnpm lint
+
+      - run: pnpm turbo run typecheck ${{ steps.filtro.outputs.args }}
+
+      # Unitarias + integración (Testcontainers usa el Docker del runner). tests/e2e se excluye: necesita el stack
+      # levantado y corre en el job `e2e`.
+      - run: pnpm turbo run test ${{ steps.filtro.outputs.args }} --filter='!@consultorio/e2e'
+
+  e2e:
+    name: E2E (docker compose)
+    needs: verificar
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Generar .env
+        run: bash scripts/generar-dev-env.sh
+
+      - name: Levantar el stack
+        run: docker compose --profile app up -d --build --wait
+
+      - name: Pruebas E2E
+        run: pnpm --filter @consultorio/e2e test
+
+      # Nunca se imprime .env: solo los logs de los contenedores.
+      - name: Logs de compose (solo si falla)
+        if: failure()
+        run: docker compose --profile app logs --no-color --tail=200
+
+      - name: Bajar el stack
+        if: always()
+        run: docker compose --profile app down -v
+
+  imagenes:
+    name: Imagen ${{ matrix.app }}
+    # Omitido hasta configurar AWS (variable de repositorio AWS_ROLE_ARN).
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && vars.AWS_ROLE_ARN != ''
+    needs: e2e
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      id-token: write
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        # Simple a propósito: en main se construyen siempre las tres imágenes (la caché de capas de Docker
+        # y `turbo prune` en el Dockerfile mantienen el coste bajo). No se calcula "afectado".
+        app: [gateway, svc-identidad, svc-auditoria]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - id: ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Construir y publicar
+        env:
+          REGISTRO: ${{ steps.ecr.outputs.registry }}
+          APP: ${{ matrix.app }}
+        run: |
+          IMAGEN="${REGISTRO}/consultorio/${APP}"
+          docker build -f docker/Dockerfile.service --build-arg APP="${APP}" \
+            -t "${IMAGEN}:${GITHUB_SHA}" -t "${IMAGEN}:latest" .
+          docker push "${IMAGEN}:${GITHUB_SHA}"
+          docker push "${IMAGEN}:latest"
+
+  desplegar:
+    name: Desplegar ${{ matrix.app }}
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && vars.AWS_ROLE_ARN != ''
+    needs: imagenes
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: produccion # aprobación manual configurada en el environment
+    permissions:
+      id-token: write
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        app: [gateway, svc-identidad, svc-auditoria]
+    steps:
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Forzar nuevo despliegue en ECS
+        run: |
+          aws ecs update-service \
+            --cluster "${{ vars.ECS_CLUSTER }}" \
+            --service "${{ matrix.app }}" \
+            --force-new-deployment

@@ -37,3 +37,18 @@ pnpm test                          # unitarias + integración (Testcontainers) c
 pnpm --filter @consultorio/e2e test  # E2E contra http://localhost:8080 (E2E_BASE_URL); requiere el perfil `app` arriba
 pnpm lint && pnpm typecheck
 ```
+
+## CI
+
+El pipeline está en `.github/workflows/ci.yml`:
+
+- `verificar` (PR y push a `main`): lint, typecheck y pruebas (unit + integración con Testcontainers). En PR solo lo afectado respecto a `origin/main`; en `main`, todo.
+- `e2e`: levanta el stack con `docker compose --profile app` y corre `@consultorio/e2e`.
+- `imagenes` y `desplegar` (solo `main`): construyen y publican las tres imágenes en ECR (tag = SHA y `latest`) y fuerzan un nuevo despliegue en ECS.
+
+Configuración necesaria en GitHub para `imagenes` y `desplegar`:
+
+- Variables de repositorio: `AWS_ROLE_ARN` (rol IAM asumido por OIDC) y `ECS_CLUSTER` (nombre del clúster ECS; los servicios se llaman como las apps).
+- Environment `produccion` con revisores requeridos (aprobación manual del despliegue).
+
+Mientras `AWS_ROLE_ARN` no esté definida, esos dos jobs se omiten.
