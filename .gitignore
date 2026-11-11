@@ -5,3 +5,4 @@ coverage
 .env
 .superpowers/
 *.tsbuildinfo
+cdk.out

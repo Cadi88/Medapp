@@ -5,5 +5,8 @@ packages:
   - "tests/*"
 allowBuilds:
   cpu-features: false
+  esbuild: false
   protobufjs: false
   ssh2: false
+minimumReleaseAgeExclude:
+  - aws-cdk-lib@2.276.0

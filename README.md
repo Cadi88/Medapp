@@ -52,3 +52,36 @@ Configuración necesaria en GitHub para `imagenes` y `desplegar`:
 - Environment `produccion` con revisores requeridos (aprobación manual del despliegue).
 
 Mientras `AWS_ROLE_ARN` no esté definida, esos dos jobs se omiten.
+
+## Infraestructura
+
+`infra/` (`@consultorio/infra`) define la infraestructura de AWS con CDK en `mx-central-1`: `Consultorio-Red`
+(VPC de 2 AZ, 1 NAT), `Consultorio-Datos` (KMS, RDS PostgreSQL 16, S3), `Consultorio-Mensajeria` (NATS con JetStream en
+Fargate + EFS) y `Consultorio-Servicios` (ECR, ECS, ALB y secretos). El costo mensual estimado está al inicio de `infra/bin/app.ts`.
+
+**Es solo código: no hay nada desplegado y no se ha ejecutado ningún comando contra AWS.** `cdk bootstrap` y `cdk deploy`
+crean recursos que cuestan dinero (del orden de 200 USD/mes); no ejecutarlos antes de tener ingresos o presupuesto aprobado.
+Lo siguiente es local y gratuito (no necesita credenciales de AWS):
+
+```bash
+pnpm --filter @consultorio/infra test                        # pruebas de aserciones sobre las plantillas
+pnpm --filter @consultorio/infra exec cdk synth --quiet      # sintetiza las 4 stacks en infra/cdk.out (ignorado por git)
+```
+
+Requisitos para un despliegue futuro (quien despliegue, con su cuenta):
+
+1. Cuenta de AWS con acceso habilitado a `mx-central-1` (región opt-in) y credenciales; exportar `CDK_DEFAULT_ACCOUNT`.
+2. `cdk bootstrap aws://<cuenta>/mx-central-1` (crea el bucket y los roles de CDK).
+3. Certificado ACM validado en `mx-central-1` para el dominio de la API: `cdk deploy --all -c certificadoArn=<arn> -c urlPublica=https://<dominio>`.
+   Sin `certificadoArn` el ALB escucha solo en HTTP:80 (válido únicamente para pruebas sin datos reales), y `urlPublica`
+   (origen que acepta Better Auth) usa por defecto el DNS del balanceador. Apuntar el DNS del dominio al ALB.
+4. Arranque manual de una sola vez (detallado en `infra/lib/servicios.ts`): crear en RDS las bases y roles como en
+   `docker/postgres/init.sql` con las contraseñas de los secretos `consultorio/<rol>` de Secrets Manager, añadir a esos
+   cuatro secretos el campo `url` con la cadena de conexión completa y reemplazar `consultorio/jwt-private-jwk` por la JWK privada.
+5. Configurar en GitHub `AWS_ROLE_ARN` (rol OIDC con permisos sobre ECR y ECS) y `ECS_CLUSTER=consultorio` (ver CI). Los
+   servicios ECS se llaman `gateway`, `svc-identidad` y `svc-auditoria` y sus repositorios `consultorio/<app>`; las tareas usan `:latest`.
+
+Notas de red: solo el ALB es público; `svc-identidad` y `svc-auditoria` solo aceptan tráfico del gateway (identidad confía en
+`x-forwarded-for`), y `CONFIAR_EN_PROXY` del gateway es el CIDR de la VPC (`10.0.0.0/16`). `svc-auditoria` lee el JWKS por la ruta
+pública del gateway (`/api/identidad/.well-known/jwks.json`) para no abrir identidad a otro origen. Con `CDK_DEFAULT_ACCOUNT`
+definida la síntesis sigue sin consultar AWS (las zonas de disponibilidad están fijas en el código).
