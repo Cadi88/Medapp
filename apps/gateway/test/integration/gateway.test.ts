@@ -1,4 +1,4 @@
-import { createServer, type Server } from 'node:http';
+import { createServer, request as httpRequest, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { startTestJwks, type TestJwks } from '@consultorio/platform/testing';
 import type { FastifyInstance } from 'fastify';
@@ -18,6 +18,7 @@ async function iniciarDestino(): Promise<Destino> {
     const chunks: Buffer[] = [];
     req.on('data', (c: Buffer) => chunks.push(c));
     req.on('end', () => {
+      recibidos++;
       const url = req.url ?? '';
       if (url.startsWith('/dos-cookies')) {
         res.writeHead(200, { 'content-type': 'application/json', 'set-cookie': ['a=1; Path=/; HttpOnly', 'b=2; Path=/'] });
@@ -50,6 +51,7 @@ let identidad: Destino;
 let auditoria: Destino;
 let gw: FastifyInstance;
 const abiertos: FastifyInstance[] = [];
+let recibidos = 0;
 
 const nuevo = async (extra: Partial<Parameters<typeof buildGateway>[0]> = {}): Promise<FastifyInstance> => {
   const app = await buildGateway({
@@ -60,6 +62,23 @@ const nuevo = async (extra: Partial<Parameters<typeof buildGateway>[0]> = {}): P
   abiertos.push(app);
   return app;
 };
+/**
+ * Petición HTTP real con la ruta tal cual (sin normalizar): `inject` resuelve los segmentos `..` antes de
+ * llegar a Fastify, un cliente real no.
+ */
+async function crudo(app: FastifyInstance, method: string, path: string, headers: Record<string, string> = {}): Promise<{ status: number; json: Record<string, unknown> }> {
+  if (!app.server.listening) await app.listen({ port: 0, host: '127.0.0.1' });
+  const { port } = app.server.address() as AddressInfo;
+  return new Promise((resolve, reject) => {
+    const req = httpRequest({ host: '127.0.0.1', port, method, path, headers: { 'content-type': 'application/json', ...headers } }, (res) => {
+      const chunks: Buffer[] = [];
+      res.on('data', (c: Buffer) => chunks.push(c));
+      res.on('end', () => resolve({ status: res.statusCode ?? 0, json: JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}') as Record<string, unknown> }));
+    });
+    req.on('error', reject);
+    req.end('{}');
+  });
+}
 const auth = (t: string): Record<string, string> => ({ authorization: `Bearer ${t}` });
 const registroReq = { method: 'POST' as const, url: '/api/identidad/registro', payload: {} };
 
@@ -150,15 +169,15 @@ describe('rutas públicas y de sesión', () => {
     expect((await gw.inject({ method: 'POST', url: '/api/identidad/tenants/mios', payload: {} })).statusCode).toBe(401);
   });
 
-  test('intento de path traversal desde una ruta pública no es público', async () => {
-    for (const url of [
+  test('intento de path traversal desde una ruta pública se rechaza (400) antes de clasificar', async () => {
+    for (const path of [
       '/api/identidad/registro/../miembros',
       '/api/identidad/auth/../miembros',
       '/api/identidad/auth/%2e%2e/miembros',
       '/api/identidad/auth/..%2fmiembros',
     ]) {
-      const r = await gw.inject({ method: 'POST', url, payload: {} });
-      expect(r.statusCode, url).toBe(401);
+      const r = await crudo(gw, 'POST', path);
+      expect(r.status, path).toBe(400);
     }
   });
 });
@@ -199,6 +218,47 @@ describe('cabeceras, query y errores del destino', () => {
     const r = await gw.inject({ url: '/api/identidad/conflicto', headers: auth(await jwks.sign(claims)) });
     expect(r.statusCode).toBe(409);
     expect(r.json()).toEqual({ code: 'CONFLICTO', message: 'Ya existe', details: [{ campo: 'slug' }] });
+  });
+});
+
+describe('rutas con segmentos de punto o barras codificadas', () => {
+  const malas = [
+    '/api/identidad/x/../auth/sign-in/email',
+    '/api/identidad/x/%2e%2e/registro',
+    '/api/identidad/x/%2E%2e/auth/sign-in/email',
+    '/api/identidad/x/.%2E/registro',
+    '/api/identidad/x/./y',
+    '/api/identidad/a%2Fb',
+    '/api/identidad/a%5Cb',
+    '/api/identidad//registro',
+    '/api/auditoria/x/../eventos',
+  ];
+
+  test('con token válido → 400 VALIDACION y el destino no recibe nada', async () => {
+    const h = auth(await jwks.sign(claims));
+    const antes = recibidos;
+    for (const url of malas) {
+      const r = await crudo(gw, 'POST', url, h);
+      expect(r.status, url).toBe(400);
+      expect(r.json.code).toBe('VALIDACION');
+    }
+    expect(recibidos).toBe(antes);
+  });
+
+  test('sin token también → 400 (se rechaza antes de autenticar), también en rutas públicas', async () => {
+    const antes = recibidos;
+    for (const url of [...malas, '/api/identidad/registro/../miembros', '/api/identidad/auth/../miembros']) {
+      expect((await crudo(gw, 'POST', url)).status, url).toBe(400);
+    }
+    expect(recibidos).toBe(antes);
+  });
+
+  test('caracteres codificados legítimos siguen pasando', async () => {
+    const r = await gw.inject({ url: '/api/auditoria/eventos?q=%C3%B1', headers: auth(await jwks.sign(claims)) });
+    expect(r.statusCode).toBe(200);
+    expect(r.json().url).toBe('/eventos?q=%C3%B1');
+    const p = await gw.inject({ url: '/api/identidad/medicos/%C3%B1/perfil', headers: auth(await jwks.sign(claims)) });
+    expect(p.json().url).toBe('/medicos/%C3%B1/perfil');
   });
 });
 

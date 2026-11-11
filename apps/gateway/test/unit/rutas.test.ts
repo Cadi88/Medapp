@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import { clasificarRuta, filtrarCabecerasPeticion, filtrarCabecerasRespuesta, RUTAS_PUBLICAS } from '../../src/rutas.js';
+import { clasificarRuta, rutaPermitida, urlDestino, filtrarCabecerasPeticion, filtrarCabecerasRespuesta, RUTAS_PUBLICAS } from '../../src/rutas.js';
 
 describe('clasificarRuta', () => {
   test.each([
@@ -36,7 +36,7 @@ describe('clasificarRuta', () => {
       servicio: 'auditoria',
       rutaDestino: '/eventos?limite=5&x=a%20b',
     });
-    expect(clasificarRuta('GET', '/api/identidad/medicos/a%2Fb/perfil?q=%C3%B1')?.rutaDestino).toBe('/medicos/a%2Fb/perfil?q=%C3%B1');
+    expect(clasificarRuta('GET', '/api/identidad/medicos/abc/perfil?q=%C3%B1&r=%2F')?.rutaDestino).toBe('/medicos/abc/perfil?q=%C3%B1&r=%2F');
   });
 
   test('RUTAS_PUBLICAS solo contiene rutas de identidad', () => {
@@ -110,5 +110,56 @@ describe('filtrarCabecerasRespuesta', () => {
       'set-cookie': ['a=1; Path=/', 'b=2; Path=/'],
       'x-propio': 'ok',
     });
+  });
+});
+
+describe('rutaPermitida', () => {
+  test.each([
+    '/api/identidad/miembros',
+    '/api/identidad/medicos/%C3%B1/perfil?q=%C3%B1&r=%2F&s=%2e',
+    '/api/identidad/a.b/c..d/.well-known/jwks.json',
+    '/api/identidad/x/..hidden',
+    '/api/auditoria/eventos?ruta=../x',
+  ])('permite %s', (u) => {
+    expect(rutaPermitida(u)).toBe(true);
+  });
+
+  test.each([
+    '/api/identidad/x/../auth/sign-in/email',
+    '/api/identidad/x/./y',
+    '/api/identidad/x/..',
+    '/api/identidad/x/.',
+    '/api/identidad/x/%2e%2e/registro',
+    '/api/identidad/x/%2E%2e/registro',
+    '/api/identidad/x/.%2E/registro',
+    '/api/identidad/x/%2e/y',
+    '/api/identidad/a%2Fb',
+    '/api/identidad/a%2fb',
+    '/api/identidad/a\\b',
+    '/api/identidad/a%5Cb',
+    '/api/identidad/a%5cb',
+    '/api/identidad//a',
+    '/api/identidad/a//b?x=1',
+  ])('rechaza %s', (u) => {
+    expect(rutaPermitida(u)).toBe(false);
+  });
+});
+
+describe('urlDestino', () => {
+  test('devuelve la URL cuando el destino conserva exactamente la ruta', () => {
+    expect(urlDestino('http://i:3001', '/registro')).toBe('http://i:3001/registro');
+    expect(urlDestino('http://i:3001/', '/eventos?limite=5&x=a%20b')).toBe('http://i:3001/eventos?limite=5&x=a%20b');
+    expect(urlDestino('http://i/base', '/m/%C3%B1')).toBe('http://i/base/m/%C3%B1');
+  });
+
+  test.each(['/a/../auth/x', '/a/%2e%2e/registro', '/a/.%2E/registro', '/a/./b', '/a b', '/x?', '/a\\b'])(
+    'null si la normalización cambiaría %s',
+    (r) => {
+      expect(urlDestino('http://i:3001', r)).toBeNull();
+    },
+  );
+
+  test('null si la base no es una URL válida', () => {
+    expect(urlDestino('no-url', '/x')).toBeNull();
   });
 });

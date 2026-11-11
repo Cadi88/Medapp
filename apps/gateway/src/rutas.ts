@@ -108,3 +108,29 @@ export function filtrarCabecerasRespuesta(destino: Cabeceras): Record<string, st
   }
   return salida;
 }
+
+/**
+ * Una ruta bajo `/api/` es válida solo si su ruta CRUDA (sin query) no tiene segmentos `.`/`..`, ni `%2e`,
+ * `%2f`, `%5c` (en cualquier combinación de mayúsculas), ni backslash, ni `//`. Así el destino jamás recibe
+ * una ruta que un normalizador (WHATWG URL, proxy) pueda resolver a otra distinta de la clasificada.
+ */
+export function rutaPermitida(url: string): boolean {
+  const path = rutaSinQuery(url);
+  if (/%(2e|2f|5c)/i.test(path) || path.includes('\\') || path.includes('//')) return false;
+  return !path.split('/').some((s) => s === '.' || s === '..');
+}
+
+/**
+ * URL final hacia el destino, o `null` si construirla cambiaría la ruta o el query (normalización de la URL):
+ * el destino debe recibir exactamente lo clasificado. Falla cerrado.
+ */
+export function urlDestino(base: string, rutaDestino: string): string | null {
+  try {
+    const b = new URL(base);
+    const u = new URL(base.replace(/\/+$/, '') + rutaDestino);
+    const esperado = b.pathname.replace(/\/+$/, '') + rutaDestino;
+    return u.pathname + u.search === esperado ? u.href : null;
+  } catch {
+    return null;
+  }
+}

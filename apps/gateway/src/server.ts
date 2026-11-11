@@ -2,7 +2,7 @@ import { AppError, createHttpApp } from '@consultorio/platform';
 import rateLimit from '@fastify/rate-limit';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { Agent, request as undiciRequest } from 'undici';
-import { clasificarRuta, filtrarCabecerasPeticion, filtrarCabecerasRespuesta, RUTAS_PUBLICAS } from './rutas.js';
+import { clasificarRuta, filtrarCabecerasPeticion, filtrarCabecerasRespuesta, RUTAS_PUBLICAS, rutaPermitida, urlDestino } from './rutas.js';
 
 export interface GatewayOptions {
   /** JWKS de svc-identidad con el que se verifican los tokens de tenant. */
@@ -23,6 +23,8 @@ export interface GatewayOptions {
 }
 
 type Metodo = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
+/** Ruta interna a la que se reescribe toda petición `/api/` con ruta no permitida (responde 400). */
+const RUTA_INVALIDA = '/__ruta_invalida';
 const METODOS: Metodo[] = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'];
 
 /** Rutas con rate limit por IP (mismas que `REGLAS_ABIERTAS`). */
@@ -44,8 +46,16 @@ export async function buildGateway(o: GatewayOptions): Promise<FastifyInstance> 
   const timeout = o.timeoutDestinoMs ?? 10_000;
   const app = await createHttpApp({
     servicio: 'gateway',
-    plugin: { jwksUrl: o.jwksUrl, rutasPublicas: [...RUTAS_PUBLICAS] },
-    fastify: { trustProxy: o.confiarEnProxy ?? false },
+    plugin: { jwksUrl: o.jwksUrl, rutasPublicas: [...RUTAS_PUBLICAS, RUTA_INVALIDA] },
+    fastify: {
+      trustProxy: o.confiarEnProxy ?? false,
+      // Corre antes de cualquier hook (autenticación incluida): una ruta /api/ con segmentos de punto o
+      // barras codificadas nunca llega a clasificarse ni a reenviarse, tenga token o no.
+      rewriteUrl: (req) => {
+        const url = req.url ?? '';
+        return url.startsWith('/api/') && !rutaPermitida(url) ? RUTA_INVALIDA : url;
+      },
+    },
   });
 
   // El cuerpo se reenvía tal cual (sin parsear): un único parser binario para cualquier content-type.
@@ -72,10 +82,12 @@ export async function buildGateway(o: GatewayOptions): Promise<FastifyInstance> 
     // El plugin decide "pública" solo por ruta; aquí se exige además el método. Sin tenant → 401.
     if (c.acceso === 'protegida' && !req.ctx.tenantId) throw new AppError('NO_AUTENTICADO', 'No autenticado', 401);
 
-    const base = o.destinos[c.servicio].replace(/\/+$/, '');
+    // Segunda barrera: el destino debe recibir exactamente la ruta clasificada.
+    const destino = urlDestino(o.destinos[c.servicio], c.rutaDestino);
+    if (!destino) throw new AppError('VALIDACION', 'Solicitud inválida', 400);
     let res;
     try {
-      res = await undiciRequest(base + c.rutaDestino, {
+      res = await undiciRequest(destino, {
         method: req.method as Metodo,
         headers: filtrarCabecerasPeticion(req.headers, { traceId: req.ctx.traceId, ip: req.ip, protocolo: req.protocol }),
         body: Buffer.isBuffer(req.body) && req.body.length > 0 ? req.body : undefined,
@@ -90,6 +102,13 @@ export async function buildGateway(o: GatewayOptions): Promise<FastifyInstance> 
     return reply.send(res.body);
   }
 
+  app.route({
+    method: METODOS,
+    url: RUTA_INVALIDA,
+    handler: () => {
+      throw new AppError('VALIDACION', 'Solicitud inválida', 400);
+    },
+  });
   for (const r of RUTAS_LIMITADAS) {
     app.route({ method: r.metodos, url: r.url, config: { rateLimit: {} }, handler: proxear });
   }
