@@ -116,20 +116,19 @@ jobs:
       - id: ecr
         uses: aws-actions/amazon-ecr-login@v2
 
+      # Solo :<sha> (repositorios con etiquetas inmutables). No hay :latest: nada no aprobado puede llegar a una tarea.
       - name: Construir y publicar
         env:
           REGISTRO: ${{ steps.ecr.outputs.registry }}
           APP: ${{ matrix.app }}
         run: |
-          IMAGEN="${REGISTRO}/consultorio/${APP}"
-          docker build -f docker/Dockerfile.service --build-arg APP="${APP}" \
-            -t "${IMAGEN}:${GITHUB_SHA}" -t "${IMAGEN}:latest" .
-          docker push "${IMAGEN}:${GITHUB_SHA}"
-          docker push "${IMAGEN}:latest"
+          IMAGEN="${REGISTRO}/consultorio/${APP}:${GITHUB_SHA}"
+          docker build -f docker/Dockerfile.service --build-arg APP="${APP}" -t "${IMAGEN}" .
+          docker push "${IMAGEN}"
 
   desplegar:
     name: Desplegar ${{ matrix.app }}
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && vars.AWS_ROLE_ARN != ''
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && vars.AWS_ROLE_ARN != '' && vars.ECS_CLUSTER != ''
     needs: imagenes
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -147,9 +146,30 @@ jobs:
           role-to-assume: ${{ vars.AWS_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
 
-      - name: Forzar nuevo despliegue en ECS
+      - id: ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      # Nueva revisión de la definición de tarea actual del servicio con la imagen :<sha> aprobada, y el servicio pasa a
+      # esa revisión. El rollback del circuit breaker vuelve a la revisión anterior (también un :<sha> aprobado).
+      - name: Registrar revisión con la imagen del commit y actualizar el servicio
+        env:
+          CLUSTER: ${{ vars.ECS_CLUSTER }}
+          APP: ${{ matrix.app }}
+          REGISTRO: ${{ steps.ecr.outputs.registry }}
         run: |
-          aws ecs update-service \
-            --cluster "${{ vars.ECS_CLUSTER }}" \
-            --service "${{ matrix.app }}" \
-            --force-new-deployment
+          set -euo pipefail
+          IMAGEN="${REGISTRO}/consultorio/${APP}:${GITHUB_SHA}"
+          ACTUAL=$(aws ecs describe-services --cluster "${CLUSTER}" --services "${APP}" \
+            --query 'services[0].taskDefinition' --output text)
+          aws ecs describe-task-definition --task-definition "${ACTUAL}" --query taskDefinition > actual.json
+          jq --arg app "${APP}" --arg img "${IMAGEN}" '
+            if any(.containerDefinitions[]; .name == $app) then . else error("sin contenedor \($app)") end
+            | .containerDefinitions |= map(if .name == $app then .image = $img else . end)
+            | del(.taskDefinitionArn, .revision, .status, .requiresAttributes, .compatibilities,
+                  .registeredAt, .registeredBy, .deregisteredAt)
+          ' actual.json > nueva.json
+          NUEVA=$(aws ecs register-task-definition --cli-input-json file://nueva.json \
+            --query 'taskDefinition.taskDefinitionArn' --output text)
+          echo "Revisión nueva: ${NUEVA} (antes ${ACTUAL})"
+          aws ecs update-service --cluster "${CLUSTER}" --service "${APP}" --task-definition "${NUEVA}" > /dev/null
+          aws ecs wait services-stable --cluster "${CLUSTER}" --services "${APP}"

@@ -11,6 +11,8 @@ export interface OpcionesApp {
   certificadoArn?: string;
   /** Origen público de la API (si falta, se lee el contexto `urlPublica`). */
   urlPublica?: string;
+  /** Etiqueta inicial de las imágenes (si falta, se lee el contexto `imageTag`; si tampoco, parámetro `ImageTag`). */
+  imageTag?: string;
 }
 
 /** Arma las cuatro stacks. Es una función (y no código suelto en bin/app.ts) para poder probarla sin sintetizar a disco. */
@@ -48,6 +50,7 @@ export function crearApp(opciones: OpcionesApp = {}) {
     sgAuditoria: red.sgAuditoria,
     certificadoArn: opciones.certificadoArn ?? contexto('certificadoArn'),
     urlPublica: opciones.urlPublica ?? contexto('urlPublica'),
+    imageTag: opciones.imageTag ?? contexto('imageTag'),
   });
   return { app, stacks: { red, datos, mensajeria, servicios } };
 }

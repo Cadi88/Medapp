@@ -1,4 +1,4 @@
-import { Duration, RemovalPolicy, Stack, type StackProps } from 'aws-cdk-lib';
+import { CfnParameter, Duration, RemovalPolicy, Stack, type StackProps } from 'aws-cdk-lib';
 import { type ISecurityGroup, type IVpc, SubnetType } from 'aws-cdk-lib/aws-ec2';
 import { Repository, TagMutability } from 'aws-cdk-lib/aws-ecr';
 import {
@@ -42,6 +42,21 @@ export interface ServiciosStackProps extends StackProps {
   certificadoArn?: string;
   /** Origen público de la API (BETTER_AUTH_URL), p. ej. https://api.ejemplo.mx. Por defecto, el DNS del balanceador. */
   urlPublica?: string;
+  /**
+   * Etiqueta (SHA de git) de la imagen inicial de las tres tareas. Sin ella, la stack declara el parámetro de
+   * CloudFormation `ImageTag` (sin valor por defecto: el despliegue lo exige). Nunca `latest`.
+   */
+  imageTag?: string;
+}
+
+const PATRON_TAG = '^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$';
+
+/** Valida una etiqueta de imagen ECR concreta; `latest` se rechaza (los repositorios son inmutables y CI usa el SHA). */
+export function validarImageTag(tag: string): string {
+  if (!new RegExp(PATRON_TAG).test(tag) || tag === 'latest') {
+    throw new Error(`imageTag inválido: ${JSON.stringify(tag)} (usar el SHA de la imagen)`);
+  }
+  return tag;
 }
 
 type NombreApp = 'gateway' | 'svc-identidad' | 'svc-auditoria';
@@ -62,8 +77,12 @@ interface OpcionesServicio {
  * Solo el gateway está detrás del ALB (público); `svc-identidad` y `svc-auditoria` quedan en subredes privadas y
  * se resuelven entre sí por Service Connect (`http://svc-identidad:3001`, `http://svc-auditoria:3003`).
  *
- * El CI (.github/workflows/ci.yml) sube las imágenes a `consultorio/<app>` con la etiqueta del SHA y `latest`
- * y ejecuta `aws ecs update-service --force-new-deployment`; por eso las tareas referencian `:latest`.
+ * IMÁGENES: los repositorios tienen etiquetas inmutables y no existe `:latest`. El CI (.github/workflows/ci.yml) sube
+ * `consultorio/<app>:<sha>` y, tras la aprobación del environment `produccion`, registra una revisión nueva de la
+ * definición de tarea con esa imagen y la asigna al servicio (`update-service --task-definition`). Así un reemplazo de
+ * tarea o el rollback del circuit breaker solo usan imágenes aprobadas. La imagen inicial la fija el primer despliegue:
+ * `cdk deploy -c imageTag=<sha>` (o `--parameters Consultorio-Servicios:ImageTag=<sha>`). Un `cdk deploy` posterior
+ * debe pasar el SHA que esté en producción, o devolvería las tareas a la etiqueta indicada.
  *
  * ARRANQUE MANUAL (una sola vez, por quien despliegue; no lo automatiza CDK):
  *  1. En RDS, crear las bases y roles como `docker/postgres/init.sql` (`identidad_db`/`auditoria_db`, `<svc>_migrator`
@@ -90,7 +109,7 @@ export class ServiciosStack extends Stack {
       this.repositorios[app] = new Repository(this, `Repo-${app}`, {
         repositoryName: `consultorio/${app}`,
         imageScanOnPush: true,
-        imageTagMutability: TagMutability.MUTABLE, // `latest` se reescribe en cada despliegue
+        imageTagMutability: TagMutability.IMMUTABLE, // solo :<sha>; una etiqueta publicada no se reescribe
         lifecycleRules: [{ description: 'Conservar las últimas 20 imágenes', maxImageCount: 20 }],
         removalPolicy: RemovalPolicy.RETAIN,
       });
@@ -139,11 +158,21 @@ export class ServiciosStack extends Stack {
     });
     const urlPublica = props.urlPublica ?? `${props.certificadoArn ? 'https' : 'http'}://${alb.loadBalancerDnsName}`;
 
+    // --- Etiqueta de la imagen inicial: opción/contexto `imageTag` o parámetro `ImageTag` obligatorio al desplegar ---
+    const etiqueta =
+      props.imageTag !== undefined
+        ? validarImageTag(props.imageTag)
+        : new CfnParameter(this, 'ImageTag', {
+            type: 'String',
+            description: 'SHA de git de la imagen inicial de las tareas (consultorio/<app>:<sha>). CI registra las revisiones siguientes.',
+            allowedPattern: PATRON_TAG,
+          }).valueAsString;
+
     // --- Definición común de cada servicio (todos ofrecen su nombre por Service Connect) ---
     const crearServicio = (app: NombreApp, o: OpcionesServicio) => {
       const tarea = new FargateTaskDefinition(this, `Tarea-${app}`, { cpu: o.cpu, memoryLimitMiB: o.memoria });
       const contenedor = tarea.addContainer(app, {
-        image: ContainerImage.fromEcrRepository(this.repositorios[app], 'latest'),
+        image: ContainerImage.fromEcrRepository(this.repositorios[app], etiqueta),
         environment: { NODE_ENV: 'production', PORT: String(o.puerto), ...o.entorno },
         secrets: o.secretos,
         logging: LogDrivers.awsLogs({ streamPrefix: app, logRetention: RetentionDays.THREE_MONTHS }),

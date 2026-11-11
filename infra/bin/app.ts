@@ -16,6 +16,7 @@
  * Contexto opcional (cdk.json o `-c clave=valor`):
  *   certificadoArn  ARN de un certificado ACM de mx-central-1 para el listener HTTPS (sin él: HTTP:80, solo pruebas).
  *   urlPublica      origen público de la API para BETTER_AUTH_URL (por defecto, el DNS del balanceador).
+ *   imageTag        SHA de la imagen inicial de las tareas (sin él, parámetro ImageTag obligatorio al desplegar).
  */
 import { crearApp } from '../lib/aplicacion.js';
 

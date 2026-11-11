@@ -84,8 +84,15 @@ describe('región y entorno', () => {
     for (const s of Object.values(stacks)) expect(s.region).toBe('mx-central-1');
   });
   test('la síntesis funciona sin CDK_DEFAULT_ACCOUNT (sin consultas de contexto a AWS)', () => {
-    expect(process.env.CDK_DEFAULT_ACCOUNT).toBeUndefined();
-    expect(sinCertificado.app.synth().manifest.missing ?? []).toHaveLength(0);
+    const previa = process.env.CDK_DEFAULT_ACCOUNT;
+    delete process.env.CDK_DEFAULT_ACCOUNT;
+    try {
+      const { app, stacks: s } = crearApp();
+      expect(s.servicios.account).not.toMatch(/^d{12}$/);
+      expect(app.synth().manifest.missing ?? []).toHaveLength(0);
+    } finally {
+      if (previa !== undefined) process.env.CDK_DEFAULT_ACCOUNT = previa;
+    }
   });
 });
 
@@ -203,19 +210,37 @@ describe('ServiciosStack', () => {
     }
     servicios.hasResourceProperties('AWS::ECS::Cluster', { ClusterName: 'consultorio' });
   });
-  test('tres repositorios ECR con escaneo al subir y ciclo de vida de 20 imágenes', () => {
+  test('tres repositorios ECR con etiquetas inmutables, escaneo al subir y ciclo de vida de 20 imágenes', () => {
     servicios.resourceCountIs('AWS::ECR::Repository', 3);
     for (const RepositoryName of ['consultorio/gateway', 'consultorio/svc-identidad', 'consultorio/svc-auditoria']) {
       servicios.hasResourceProperties('AWS::ECR::Repository', {
         RepositoryName,
+        ImageTagMutability: 'IMMUTABLE',
         ImageScanningConfiguration: { ScanOnPush: true },
         LifecyclePolicy: { LifecyclePolicyText: Match.stringLikeRegexp('"countNumber":20') },
       });
     }
   });
-  test('las definiciones de tarea usan la etiqueta :latest', () => {
+  test('las definiciones de tarea nunca usan :latest; sin imageTag la etiqueta es el parámetro ImageTag (obligatorio al desplegar)', () => {
     expect(definicionesDeTarea()).toHaveLength(3);
-    for (const d of definicionesDeTarea()) expect(JSON.stringify(contenedor(d).Image)).toMatch(/:latest/);
+    for (const d of definicionesDeTarea()) {
+      const imagen = JSON.stringify(contenedor(d).Image);
+      expect(imagen).not.toMatch(/latest/);
+      expect(imagen).toContain('{"Ref":"ImageTag"}');
+    }
+    const parametro = (servicios.toJSON().Parameters as Json)['ImageTag'] as Json;
+    expect(parametro).toMatchObject({ Type: 'String' });
+    expect(parametro.Default).toBeUndefined();
+  });
+  test('con imageTag (opción o contexto -c imageTag=<sha>) las tareas usan :<sha> y no hay parámetro', () => {
+    const conTag = Template.fromStack(crearApp({ imageTag: '0123abcd' }).stacks.servicios);
+    const defs = Object.values(conTag.findResources('AWS::ECS::TaskDefinition')) as Json[];
+    expect(defs).toHaveLength(3);
+    for (const d of defs) expect(JSON.stringify(contenedor(d).Image)).toMatch(/:0123abcd"/);
+    expect((conTag.toJSON().Parameters as Json | undefined)?.['ImageTag']).toBeUndefined();
+  });
+  test.each(['latest', 'con espacios', '', 'a/b'])('imageTag inválido %j → error', (tag) => {
+    expect(() => crearApp({ imageTag: tag })).toThrow(/imageTag/);
   });
   test('health check del contenedor y del balanceador en /salud', () => {
     for (const d of definicionesDeTarea()) expect(JSON.stringify(contenedor(d).HealthCheck)).toContain('/salud');
