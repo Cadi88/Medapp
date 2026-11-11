@@ -19,7 +19,7 @@ export interface ServerOptions {
   nc?: NatsConnection;
   /** Llave Ed25519 con la que identidad firma los tokens de tenant; de ella se deriva el JWKS local. */
   jwtPrivateJwk: JWK;
-  betterAuth: { secret: string; baseURL: string };
+  betterAuth: { secret: string; baseURL: string; rateLimitEnabled?: boolean };
 }
 
 /** Rutas sin JWT de tenant. `/tenants/mios` y `/sesion/tenant` usan la sesión de Better Auth. */
@@ -32,7 +32,12 @@ export async function buildServer(o: ServerOptions): Promise<FastifyInstance> {
     plugin: { verificador, rutasPublicas: RUTAS_PUBLICAS },
   });
 
-  const auth = createAuth({ database: o.pool, secret: o.betterAuth.secret, baseURL: o.betterAuth.baseURL });
+  const auth = createAuth({
+    database: o.pool,
+    secret: o.betterAuth.secret,
+    baseURL: o.betterAuth.baseURL,
+    ...(o.betterAuth.rateLimitEnabled === undefined ? {} : { rateLimitEnabled: o.betterAuth.rateLimitEnabled }),
+  });
   await app.register(authRoutes, { auth });
   await app.register(registroRoutes, { deps: createRegistroDeps(o.pool, auth, app.log) });
   await app.register(sesionRoutes, { auth, pool: o.pool, jwtPrivateJwk: o.jwtPrivateJwk });

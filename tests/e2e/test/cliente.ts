@@ -23,8 +23,10 @@ export async function peticion<T = unknown>(
 ): Promise<Respuesta<T>> {
   for (let intento = 0; ; intento++) {
     const r = await enviar<T>(metodo, ruta, o);
-    if (r.status !== 429 || intento >= 4) return r;
-    await new Promise((fin) => setTimeout(fin, (r.reintentarEnSeg ?? 10) * 1000));
+    // Solo el 429 de Better Auth lleva `x-retry-after`; el 429 del gateway no se reintenta (no se enmascara su límite).
+    const espera = r.reintentarEnSeg;
+    if (r.status !== 429 || espera === undefined || intento >= 4) return r;
+    await new Promise((fin) => setTimeout(fin, espera * 1000));
   }
 }
 
@@ -44,7 +46,7 @@ async function enviar<T>(
     ...(o.cuerpo ? { body: JSON.stringify(o.cuerpo) } : {}),
   });
   const texto = await res.text();
-  const espera = Number(res.headers.get('x-retry-after') ?? res.headers.get('retry-after'));
+  const espera = Number(res.headers.get('x-retry-after'));
   return {
     status: res.status,
     cuerpo: (texto ? JSON.parse(texto) : undefined) as T,

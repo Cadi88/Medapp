@@ -19,6 +19,8 @@ const env = {
   jwtPrivateJwk: JSON.parse(requerida('JWT_PRIVATE_JWK')) as JWK,
   authSecret: requerida('BETTER_AUTH_SECRET'),
   authUrl: requerida('BETTER_AUTH_URL'),
+  // Como el valor por defecto de Better Auth: límite activo solo en producción.
+  authRateLimit: process.env.NODE_ENV === 'production',
 };
 
 initTelemetry('svc-identidad');
@@ -27,7 +29,7 @@ await runMigrations(env.migratorUrl, fileURLToPath(new URL('../migrations', impo
 const pool = createPool(env.databaseUrl);
 const nc = await connect({ servers: env.natsUrl });
 await ensureStreams(nc);
-const app = await buildServer({ pool, nc, jwtPrivateJwk: env.jwtPrivateJwk, betterAuth: { secret: env.authSecret, baseURL: env.authUrl } });
+const app = await buildServer({ pool, nc, jwtPrivateJwk: env.jwtPrivateJwk, betterAuth: { secret: env.authSecret, baseURL: env.authUrl, rateLimitEnabled: env.authRateLimit } });
 
 const apagar = async (): Promise<void> => {
   await app.close();

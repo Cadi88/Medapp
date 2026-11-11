@@ -23,6 +23,12 @@ publicado de las aplicaciones. Sin `--profile app` solo se levanta la infraestru
 `BETTER_AUTH_URL` (por defecto `http://localhost:8080`) es el origen público de la API: Better Auth rechaza los POST con
 cookies cuya cabecera `Origin` no coincida, así que los clientes deben enviar ese origen.
 
+## Producción
+
+- `svc-identidad` solo debe ser alcanzable a través del gateway: confía en `x-forwarded-for` (que fija el gateway) para el límite
+  de intentos de Better Auth por IP de cliente.
+- En el gateway, `CONFIAR_EN_PROXY` debe ser el CIDR del balanceador de carga; si no, todos los clientes compartirían IP.
+
 ## Pruebas
 
 ```bash
