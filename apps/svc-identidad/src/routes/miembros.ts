@@ -3,6 +3,7 @@ import { AppError, enqueueEvent, requireRole, withTenant } from '@consultorio/pl
 import type { FastifyPluginAsync } from 'fastify';
 import type pg from 'pg';
 import type { Auth } from '../auth.js';
+import { exigirActor, exigirRolVigente } from '../actor.js';
 import { isUniqueViolation } from '../db/errors.js';
 import { puedeEliminarMiembro } from '../reglas.js';
 import { miembroSchema, uuidSchema } from '../validadores.js';
@@ -22,6 +23,9 @@ export const miembrosRoutes: FastifyPluginAsync<MiembrosRoutesOptions> = async (
     const input = miembroSchema.parse(req.body);
     const { tenantId, usuarioId: actorId, traceId } = req.ctx;
 
+    // Antes de crear cuentas: el actor debe seguir siendo admin en la BD (el token vale hasta 15 min).
+    await withTenant(pool, tenantId, (tx) => exigirActor(tx, { tenantId, usuarioId: actorId }, ['admin']));
+
     // Usuario existente (de este u otro consultorio): se vincula tal cual, sin tocar su cuenta ni contraseña.
     let usuarioId = await idPorEmail(input.email);
     let creado = false;
@@ -40,6 +44,7 @@ export const miembrosRoutes: FastifyPluginAsync<MiembrosRoutesOptions> = async (
     const vinculado = usuarioId;
     try {
       await withTenant(pool, tenantId, async (tx) => {
+        await exigirActor(tx, { tenantId, usuarioId: actorId }, ['admin']);
         await tx.query('INSERT INTO membresia (tenant_id, usuario_id, rol) VALUES ($1, $2, $3)', [tenantId, vinculado, input.rol]);
         await enqueueEvent(tx, UsuarioVinculado.create({ tenantId, actorId, traceId, data: { usuarioId: vinculado, rol: input.rol } }));
       });
@@ -68,6 +73,8 @@ export const miembrosRoutes: FastifyPluginAsync<MiembrosRoutesOptions> = async (
         'SELECT usuario_id FROM membresia WHERE tenant_id = $1 AND rol = $2 ORDER BY usuario_id FOR UPDATE',
         [tenantId, 'admin'],
       );
+      // El actor debe seguir siendo admin: sus filas están bloqueadas arriba (FOR UPDATE), así que no puede cambiar.
+      exigirRolVigente(admins.rows.some((a: { usuario_id: string }) => a.usuario_id === actorId) ? 'admin' : undefined, ['admin']);
       const objetivo = await tx.query<{ rol: Rol }>('SELECT rol FROM membresia WHERE tenant_id = $1 AND usuario_id = $2', [tenantId, usuarioId]);
       const rolObjetivo = objetivo.rows[0]?.rol;
       if (!rolObjetivo) throw new AppError('NO_ENCONTRADO', 'Miembro no encontrado', 404);

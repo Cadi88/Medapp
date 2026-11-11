@@ -129,14 +129,14 @@ export function secretoDeUri(totpURI: string): string {
   return s;
 }
 
-/** Activa TOTP para el usuario de `cookie` (enable + verify con código real). Devuelve el secreto. */
-export async function activarTotp(app: FastifyInstance, cookie: string, password = PASSWORD): Promise<string> {
+/** Activa TOTP para el usuario de `cookie` (enable + verify con código real). Devuelve el secreto y la cookie de la sesión que reemplaza a la actual. */
+export async function activarTotp(app: FastifyInstance, cookie: string, password = PASSWORD): Promise<{ secret: string; cookie: string }> {
   const en = await jsonAuth(app, '/auth/two-factor/enable', { password }, cookie);
   if (en.statusCode !== 200) throw new Error(`two-factor/enable falló: ${en.statusCode}`);
   const secret = secretoDeUri(en.json<{ totpURI: string }>().totpURI);
   const v = await jsonAuth(app, '/auth/two-factor/verify-totp', { code: await codigoTotp(secret) }, cookie);
   if (v.statusCode !== 200) throw new Error(`two-factor/verify-totp falló: ${v.statusCode}`);
-  return secret;
+  return { secret, cookie: mezclarCookies(cookie, v) };
 }
 
 /** Sign-in de un usuario con TOTP activo: credenciales y luego código. Devuelve cookie de sesión. */
@@ -153,7 +153,7 @@ export async function iniciarSesionConTotp(app: FastifyInstance, email: string, 
 
 /** Activa TOTP y devuelve la sesión resultante (con 2FA ya satisfecho) junto con el secreto. */
 export async function activarTotpEIniciarSesion(app: FastifyInstance, email: string, password = PASSWORD): Promise<{ cookie: string; secret: string }> {
-  const secret = await activarTotp(app, await iniciarSesion(app, email, password), password);
+  const { secret } = await activarTotp(app, await iniciarSesion(app, email, password), password);
   return { cookie: await iniciarSesionConTotp(app, email, secret, password), secret };
 }
 

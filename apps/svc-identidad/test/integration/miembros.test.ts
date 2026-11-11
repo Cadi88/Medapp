@@ -15,6 +15,7 @@ import {
   type Consultorio,
   type Entorno,
 } from './helpers.js';
+import { crearAdminConToken } from './helpers-mfa.js';
 
 const UUIDV7 = /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 
@@ -221,9 +222,52 @@ describe('DELETE /miembros/:usuarioId', () => {
       const { cookie } = await activarTotpEIniciarSesion(app, emailB);
       const tokenB = (await pedirToken(app, cookie, par.tenantId)).json().token;
       const [a, b] = await Promise.all([borrar(par.adminToken, idB), borrar(tokenB, par.adminId)]);
-      expect([a.statusCode, b.statusCode].sort()).toEqual([204, 409]);
+      // La segunda baja ya no tiene actor vigente (fue removido por la primera): 403.
+      expect([a.statusCode, b.statusCode].sort()).toEqual([204, 403]);
       const admins = await q("select 1 from membresia where tenant_id = $1 and rol = 'admin'", [par.tenantId]);
       expect(admins).toHaveLength(1);
     }
+  });
+});
+
+describe('actor removido con token aún vigente', () => {
+  test('no puede volver a vincularse, ni eliminar admins, ni editar datos', async () => {
+    const c = await crearConsultorio(app, 'removido');
+    const b = await crearAdminConToken(app, c, 'adminb@removido.mx');
+    const idC = await agregarMiembro(app, c, 'adminc@removido.mx', 'admin');
+    expect((await borrar(c.adminToken, b.id)).statusCode).toBe(204);
+
+    const antes = (await q('select count(*)::int n from outbox'))[0].n;
+    const re = await invitarMiembro(app, b.token, { email: 'adminb@removido.mx', nombre: 'B', rol: 'admin', passwordTemporal: PASSWORD });
+    expect(re.statusCode).toBe(403);
+    expect(re.json().code).toBe('PROHIBIDO');
+    expect(await q('select 1 from membresia where tenant_id = $1 and usuario_id = $2', [c.tenantId, b.id])).toHaveLength(0);
+
+    const nuevo = await invitarMiembro(app, b.token, { email: 'cuentanueva@removido.mx', nombre: 'N', rol: 'recepcion', passwordTemporal: PASSWORD });
+    expect(nuevo.statusCode).toBe(403);
+    expect(await q("select 1 from \"user\" where email = 'cuentanueva@removido.mx'")).toHaveLength(0);
+
+    expect((await borrar(b.token, idC)).statusCode).toBe(403);
+    expect((await borrar(b.token, c.adminId)).statusCode).toBe(403);
+    expect(await q("select 1 from membresia where tenant_id = $1 and rol = 'admin'", [c.tenantId])).toHaveLength(2);
+
+    const fiscal = await app.inject({
+      method: 'PUT',
+      url: '/datos-fiscales',
+      payload: { rfc: 'XAXX010101000', razonSocial: 'X', regimenFiscal: '601', cp: '06600' },
+      headers: conToken(b.token),
+    });
+    expect(fiscal.statusCode).toBe(403);
+    expect(await q('select count(*)::int n from outbox')).toEqual([{ n: antes }]);
+  });
+
+  test('un médico removido no puede editar su perfil con el token anterior', async () => {
+    const c = await crearConsultorio(app, 'removido-medico');
+    const id = await agregarMiembro(app, c, 'medico@removido.mx', 'medico');
+    const { cookie } = await activarTotpEIniciarSesion(app, 'medico@removido.mx');
+    const token = (await pedirToken(app, cookie, c.tenantId)).json().token;
+    expect((await borrar(c.adminToken, id)).statusCode).toBe(204);
+    const r = await app.inject({ method: 'PUT', url: `/medicos/${id}/perfil`, payload: { cedulaProfesional: '1234567' }, headers: conToken(token) });
+    expect(r.statusCode).toBe(403);
   });
 });

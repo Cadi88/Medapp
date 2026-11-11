@@ -2,6 +2,7 @@ import { betterAuth, type BetterAuthOptions } from 'better-auth';
 import { APIError, createAuthMiddleware } from 'better-auth/api';
 import { twoFactor } from 'better-auth/plugins';
 import { uuidv7 } from 'uuidv7';
+import { hooksRevocarAlActivarMfa } from './revocar-sesiones.js';
 import { esAltaDirecta } from './sign-up-guard.js';
 
 export interface AuthOptions {
@@ -18,6 +19,7 @@ export interface AuthOptions {
  * No hay auto-inicio de sesión al registrarse: `/registro` crea la cuenta y el usuario inicia sesión después.
  */
 export function createAuth(o: AuthOptions) {
+  const mfa = hooksRevocarAlActivarMfa();
   return betterAuth({
     appName: 'Consultorio',
     database: o.database,
@@ -30,6 +32,11 @@ export function createAuth(o: AuthOptions) {
     hooks: {
       before: createAuthMiddleware(async (ctx) => {
         if (esAltaDirecta(ctx.path, ctx.request !== undefined)) throw new APIError('NOT_FOUND', { message: 'Not found' });
+        await mfa.antes(ctx);
+      }),
+      // Al activarse el 2FA se revocan las demás sesiones (solo contraseña) del usuario.
+      after: createAuthMiddleware(async (ctx) => {
+        await mfa.despues(ctx);
       }),
     },
     plugins: [twoFactor({ issuer: 'Consultorio' })],

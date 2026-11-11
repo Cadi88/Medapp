@@ -4,6 +4,7 @@ import { afterAll, beforeAll, describe, expect, test } from 'vitest';
 import {
   PASSWORD,
   activarTotpEIniciarSesion,
+  activarTotp,
   iniciarSesionConTotp,
   agregarMiembro,
   conToken,
@@ -16,6 +17,7 @@ import {
   type Consultorio,
   type Entorno,
 } from './helpers.js';
+import { iniciarSesionSoloPassword } from './helpers-mfa.js';
 
 let env: Entorno;
 let app: FastifyInstance;
@@ -184,5 +186,38 @@ describe('POST /sesion/tenant', () => {
     const cookie = await iniciarSesion(app, 'medico@sesion-uno.mx');
     const r = await pedirToken(app, cookie, t1.tenantId);
     expect(r.body).not.toMatch(/secret|backup|password/i);
+  });
+});
+
+describe('sesiones y alta de MFA', () => {
+  const sesionTenant = (cookie: string, tenantId: string) => pedirToken(app, cookie, tenantId);
+
+  test('una sesión solo-contraseña previa al alta de MFA queda revocada al activarse; la nueva sigue', async () => {
+    const reg = await app.inject({ method: 'POST', url: '/registro', payload: registro('mfa-revoca') });
+    const { tenantId } = reg.json<{ tenantId: string }>();
+    const a = await iniciarSesion(app, 'mfa-revoca@ejemplo.mx'); // dispositivo A, solo contraseña
+    const b = await iniciarSesion(app, 'mfa-revoca@ejemplo.mx'); // dispositivo B
+    expect((await sesionTenant(a, tenantId)).statusCode).toBe(403); // antes del alta: admin sin MFA
+    const { secret, cookie: bNueva } = await activarTotp(app, b);
+    const rA = await sesionTenant(a, tenantId);
+    expect(rA.statusCode).toBe(401);
+    expect(rA.json().code).toBe('NO_AUTENTICADO');
+    expect((await app.inject({ method: 'GET', url: '/tenants/mios', headers: { cookie: a } })).statusCode).toBe(401);
+    const rB = await sesionTenant(bNueva, tenantId);
+    expect(rB.statusCode).toBe(200);
+    const jwks = createLocalJWKSet((await app.inject({ method: 'GET', url: '/.well-known/jwks.json' })).json());
+    expect((await jwtVerify(rB.json().token, jwks, { issuer: 'svc-identidad' })).payload).toMatchObject({ rol: 'admin', mfa: true });
+    // Un sign-in posterior con TOTP NO revoca las demás sesiones ya verificadas.
+    const c2 = await iniciarSesionConTotp(app, 'mfa-revoca@ejemplo.mx', secret);
+    expect((await sesionTenant(c2, tenantId)).statusCode).toBe(200);
+    expect((await sesionTenant(bNueva, tenantId)).statusCode).toBe(200);
+  });
+
+  test('regresión: sign-in solo con contraseña de un usuario con 2FA activo no obtiene token', async () => {
+    const cookie = await iniciarSesionSoloPassword(app, t1.adminEmail);
+    expect(cookie).not.toContain('session_token');
+    const r = await sesionTenant(cookie, t1.tenantId);
+    expect(r.statusCode).toBe(401);
+    expect(r.json().code).toBe('NO_AUTENTICADO');
   });
 });
