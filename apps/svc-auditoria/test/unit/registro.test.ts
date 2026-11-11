@@ -140,3 +140,24 @@ describe('registroDesdeFila (lo leído de Postgres)', () => {
     expect(registroDesdeFila(fila)).not.toHaveProperty('hash');
   });
 });
+
+describe('UUID en mayúsculas (Postgres devuelve uuid en minúsculas)', () => {
+  test('el registro construido del sobre y el leído de la fila dan JSON canónico idéntico', () => {
+    const up = (s: string) => s.toUpperCase();
+    const e = evento({ event_id: up(E), tenant_id: up(T), actor_id: up(U) });
+    const r = construirRegistro(e, 1n, HASH_GENESIS);
+    const fila: FilaAuditoria = {
+      ...registroDesdeFila({ ...r, ocurrido_en: r.ocurrido_en, hash: 'x', id: E, tenant_id: T, actor_id: U }),
+      ocurrido_en: new Date(r.ocurrido_en),
+      hash: 'x',
+    };
+    expect(r.id).toBe(E);
+    expect(r.tenant_id).toBe(T);
+    expect(r.actor_id).toBe(U);
+    expect(canonicalJson(registroDesdeFila(fila))).toBe(canonicalJson(r));
+    expect(registroDesdeFila({ ...fila, id: up(E), tenant_id: up(T), actor_id: up(U) })).toEqual(registroDesdeFila(fila));
+  });
+  test('recurso_id (columna text) se conserva tal cual', () => {
+    expect(construirRegistro(evento({ data: { usuarioId: U.toUpperCase() } }), 1n, HASH_GENESIS).recurso_id).toBe(U.toUpperCase());
+  });
+});

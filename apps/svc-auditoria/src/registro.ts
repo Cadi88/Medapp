@@ -76,11 +76,11 @@ export function recursoIdDe(prefijo: string, data: unknown): string | null {
 export function construirRegistro(e: EventEnvelope, secuencia: bigint, hashAnterior: string): RegistroAuditoria {
   const prefijo = prefijoDe(e.type);
   return {
-    id: e.event_id,
-    tenant_id: e.tenant_id,
+    id: e.event_id.toLowerCase(),
+    tenant_id: e.tenant_id.toLowerCase(),
     secuencia: secuencia.toString(),
     ocurrido_en: new Date(e.occurred_at).toISOString(),
-    actor_id: e.actor_id,
+    actor_id: e.actor_id === null ? null : e.actor_id.toLowerCase(),
     accion: e.type,
     recurso_tipo: prefijo,
     recurso_id: recursoIdDe(prefijo, e.data),
@@ -94,11 +94,11 @@ export function construirRegistro(e: EventEnvelope, secuencia: bigint, hashAnter
 /** Normaliza una fila leída de Postgres exactamente igual que `construirRegistro`. */
 export function registroDesdeFila(f: FilaAuditoria): RegistroAuditoria {
   return {
-    id: f.id,
-    tenant_id: f.tenant_id,
+    id: f.id.toLowerCase(),
+    tenant_id: f.tenant_id.toLowerCase(),
     secuencia: f.secuencia.toString(),
     ocurrido_en: new Date(f.ocurrido_en).toISOString(),
-    actor_id: f.actor_id,
+    actor_id: f.actor_id === null ? null : f.actor_id.toLowerCase(),
     accion: f.accion,
     recurso_tipo: f.recurso_tipo,
     recurso_id: f.recurso_id,

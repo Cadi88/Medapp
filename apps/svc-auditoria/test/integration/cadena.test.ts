@@ -104,3 +104,14 @@ describe('registrar', () => {
     await expect(withTenant(env.appPool, A, (tx) => registrar(tx, evento(B)))).rejects.toThrow(/row-level security|violates/);
   });
 });
+
+describe('UUID en mayúsculas', () => {
+  test('un evento con UUID en mayúsculas se registra y la cadena sigue siendo válida', async () => {
+    const A = tenantId();
+    const e = evento(A);
+    const mayus = { ...e, event_id: e.event_id.toUpperCase(), tenant_id: A.toUpperCase(), actor_id: e.actor_id!.toUpperCase() };
+    await withTenant(env.appPool, A, (tx) => registrar(tx, mayus));
+    await registrarN(env, A, 1);
+    expect(await verificarCadena(env.appPool, A)).toEqual({ valida: true });
+  });
+});
