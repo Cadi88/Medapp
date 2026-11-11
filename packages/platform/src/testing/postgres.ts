@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process';
 import { GenericContainer, Wait } from 'testcontainers';
 import pg from 'pg';
 
@@ -5,6 +6,9 @@ export interface TestPostgres {
   migratorUrl: string;
   appUrl: string;
   stop(): Promise<void>;
+  /** Congela el contenedor (simula la base caída: las conexiones se cuelgan, no se cierran). Igual que `startNats().pause()`. */
+  pause(): Promise<void>;
+  unpause(): Promise<void>;
 }
 
 const SUPER_PW = 'super_pw';
@@ -18,6 +22,7 @@ export async function startPostgres(): Promise<TestPostgres> {
     .withExposedPorts(5432)
     .withWaitStrategy(Wait.forLogMessage(/database system is ready to accept connections/, 2))
     .start();
+  const id = container.getId();
   const host = container.getHost();
   const port = container.getMappedPort(5432);
   const url = (user: string, pw: string, db: string) => `postgres://${user}:${pw}@${host}:${port}/${db}`;
@@ -50,6 +55,12 @@ export async function startPostgres(): Promise<TestPostgres> {
     appUrl: url('test_app', APP_PW, 'test_db'),
     stop: async () => {
       await container.stop();
+    },
+    pause: async () => {
+      execFileSync('docker', ['pause', id], { stdio: 'ignore' });
+    },
+    unpause: async () => {
+      execFileSync('docker', ['unpause', id], { stdio: 'ignore' });
     },
   };
 }

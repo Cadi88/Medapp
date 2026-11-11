@@ -222,6 +222,44 @@ describe('consumidor', () => {
     expect((await migrator.query('select count(*)::int c from inbox')).rows[0].c).toBe(0);
   });
 
+  test('F1: con Postgres caído (pausado > 20 s) el evento no va a la DLQ y se procesa al volver', async () => {
+    // Pool nuevo, sin conexiones ociosas: cada intento abre una conexión y choca con el timeout de connect (5 s).
+    const pool = createPool(pgh.appUrl);
+    stoppers.push(() => pool.end());
+    const handler = vi.fn(async () => {});
+    // maxEntregas 3: antes del arreglo, 3 timeouts de connect (~15 s) bastaban para mandarlo a la DLQ.
+    const { nombre } = await consumidor({ pool, subjects: ['evt.tenant.bdcaida'], handler, maxEntregas: 3, backoffInfraMs: () => 500 });
+    const e = evento('tenant.bdcaida');
+    await pgh.pause();
+    try {
+      await publicarCrudo('evt.tenant.bdcaida', JSON.stringify(e));
+      await new Promise((r) => setTimeout(r, 22_000));
+      expect(handler).not.toHaveBeenCalled();
+    } finally {
+      await pgh.unpause();
+    }
+    await vi.waitFor(() => expect(handler).toHaveBeenCalledTimes(1), { timeout: 30_000 });
+    await vi.waitFor(async () => {
+      const info = await (await jetstreamManager(nc)).consumers.info('EVENTOS', nombre);
+      expect(info.num_pending + info.num_ack_pending).toBe(0);
+    }, { timeout: 10_000 });
+    expect((await (await jetstreamManager(nc)).streams.info('DLQ')).state.messages).toBe(0);
+    expect((await migrator.query('select count(*)::int c from inbox where event_id = $1', [e.event_id])).rows[0].c).toBe(1);
+  }, 120_000);
+
+  test('F1: un error de infraestructura va a la DLQ solo al agotar el presupuesto de tiempo (no por entregas)', async () => {
+    const caida = createPool('postgres://nadie:x@127.0.0.1:1/nada', { connectionTimeoutMillis: 1000 });
+    stoppers.push(() => caida.end());
+    const handler = vi.fn(async () => {});
+    await consumidor({ pool: caida, subjects: ['evt.tenant.sinbd'], handler, maxEntregas: 100, presupuestoInfraMs: 0 });
+    const e = evento('tenant.sinbd');
+    await publicarCrudo('evt.tenant.sinbd', JSON.stringify(e));
+    const dlq = await siguienteMensaje('DLQ', 'dlq.tenant.sinbd');
+    expect(dlq.json).toEqual(e);
+    expect(dlq.headers?.get('x-entregas')).toBe('1');
+    expect(handler).not.toHaveBeenCalled();
+  });
+
   test('reiniciar un consumidor con subjects distintos lo actualiza y recibe el nuevo subject', async () => {
     const nombre = `c-${uuidv7()}`;
     const h1 = vi.fn(async () => {});

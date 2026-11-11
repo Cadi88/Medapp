@@ -15,8 +15,12 @@ export interface ConsumeEventsOptions {
   subjects: string[];
   handler: EventHandler;
   maxEntregas?: number;
-  /** Espera (ms) antes de reentregar tras la entrega número `numEntrega`. */
+  /** Espera (ms) antes de reentregar tras la entrega número `numEntrega` (fallos del handler). */
   backoffMs?: (numEntrega: number) => number;
+  /** Espera (ms) antes de reentregar tras un error de infraestructura (por defecto exponencial con tope de 60 s). */
+  backoffInfraMs?: (numEntrega: number) => number;
+  /** Tiempo (ms) desde el timestamp del mensaje tras el cual un error de infraestructura va a la DLQ (por defecto 30 min). */
+  presupuestoInfraMs?: number;
   logger?: Logger;
 }
 
@@ -28,6 +32,51 @@ export function decidirFallo(numEntrega: number, maxEntregas: number): 'reintent
 /** Exponencial desde 1 s con tope de 30 s. */
 export function backoffPorDefecto(numEntrega: number): number {
   return Math.min(1000 * 2 ** (numEntrega - 1), 30_000);
+}
+
+/** Exponencial desde 1 s con tope de 60 s (errores de infraestructura). */
+export function backoffInfraPorDefecto(numEntrega: number): number {
+  return Math.min(1000 * 2 ** (numEntrega - 1), 60_000);
+}
+
+/** Presupuesto por defecto para errores de infraestructura: cubre de sobra un failover/reinicio de RDS (60–120 s). */
+export const PRESUPUESTO_INFRA_MS = 30 * 60_000;
+
+/**
+ * Error de infraestructura (la base no está disponible), no del evento: no cuenta para `maxEntregas`.
+ * Se escala a la DLQ solo cuando han pasado `presupuestoMs` desde el timestamp del mensaje en el stream.
+ */
+export function decidirFalloInfra(timestampMensajeMs: number, ahoraMs: number, presupuestoMs = PRESUPUESTO_INFRA_MS): 'reintentar' | 'dlq' {
+  return ahoraMs - timestampMensajeMs >= presupuestoMs ? 'dlq' : 'reintentar';
+}
+
+/** SQLSTATE: clase 08 (excepción de conexión), 57P01–57P03 (servidor apagándose / no acepta conexiones), 53300 (demasiadas conexiones). */
+const SQLSTATE_INFRA = /^(08[0-9A-Z]{3}|57P0[123]|53300)$/;
+const CODIGOS_RED = new Set(['ECONNREFUSED', 'ECONNRESET', 'ETIMEDOUT', 'EPIPE']);
+/** Mensajes exactos de pg / pg-pool sin código: timeout de connect del pool, conexión cortada, cliente inutilizable. */
+const MENSAJES_INFRA = new Set([
+  'timeout exceeded when trying to connect',
+  'Connection terminated due to connection timeout',
+  'Connection terminated unexpectedly',
+  'Connection terminated',
+  'Client has encountered a connection error and is not queryable',
+]);
+
+/** ¿El error (o alguno en su cadena `cause` / `AggregateError.errors`) indica que la base no está disponible? */
+export function esErrorDeInfraestructura(err: unknown): boolean {
+  const vistos = new Set<unknown>();
+  const pendientes: unknown[] = [err];
+  while (pendientes.length > 0 && vistos.size < 20) {
+    const e = pendientes.shift();
+    if (typeof e !== 'object' || e === null || vistos.has(e)) continue;
+    vistos.add(e);
+    const { code, message, cause, errors } = e as { code?: unknown; message?: unknown; cause?: unknown; errors?: unknown };
+    if (typeof code === 'string' && (SQLSTATE_INFRA.test(code) || CODIGOS_RED.has(code))) return true;
+    if (typeof message === 'string' && MENSAJES_INFRA.has(message)) return true;
+    pendientes.push(cause);
+    if (Array.isArray(errors)) pendientes.push(...(errors as unknown[]));
+  }
+  return false;
 }
 
 /** Cabeceras NATS no admiten saltos de línea: se colapsa el espacio en blanco y se trunca el mensaje. */
@@ -57,6 +106,8 @@ const SUBJECT_INVALIDO = 'dlq.invalido';
 export async function consumeEvents(o: ConsumeEventsOptions): Promise<{ stop(): Promise<void> }> {
   const maxEntregas = o.maxEntregas ?? 5;
   const backoff = o.backoffMs ?? backoffPorDefecto;
+  const backoffInfra = o.backoffInfraMs ?? backoffInfraPorDefecto;
+  const presupuestoInfra = o.presupuestoInfraMs ?? PRESUPUESTO_INFRA_MS;
   const logger = o.logger ?? pino({ level: 'silent' });
   const js = jetstream(o.nc);
   const jsm = await jetstreamManager(o.nc);
@@ -100,17 +151,31 @@ export async function consumeEvents(o: ConsumeEventsOptions): Promise<{ stop(): 
       return;
     }
     const log = logger.child({ tenant_id: env.tenant_id, trace_id: env.trace_id, event_id: env.event_id, type: env.type });
+    let handlerCorrio = false;
     try {
       const nuevo = await withTenant(o.pool, env.tenant_id, async (tx) => {
         const r = await tx.query('INSERT INTO inbox (event_id, consumidor) VALUES ($1, $2) ON CONFLICT DO NOTHING', [env.event_id, o.consumidor]);
         if (r.rowCount === 0) return false;
+        handlerCorrio = true;
         await o.handler(env, tx, { logger: log });
         return true;
       });
       if (!nuevo) log.info('evento duplicado; se omite');
       msg.ack();
     } catch (err) {
-      if (decidirFallo(entrega, maxEntregas) === 'dlq') {
+      // Infraestructura: la base no responde (connect, conexión caída, COMMIT por red) o el fallo ocurrió antes del
+      // handler. No cuenta entregas: se reintenta con backoff hasta agotar el presupuesto de tiempo del mensaje.
+      if (!handlerCorrio || esErrorDeInfraestructura(err)) {
+        const timestampMs = Math.floor(msg.info.timestampNanos / 1e6);
+        if (decidirFalloInfra(timestampMs, Date.now(), presupuestoInfra) === 'dlq') {
+          log.error({ err, entrega }, 'base de datos no disponible durante todo el presupuesto; a dead-letter');
+          if (await aDlq(subjectDlqSeguro(env.type), msg, err, `dlq-${o.consumidor}-${env.event_id}`)) msg.term('presupuesto de infraestructura agotado');
+          else msg.nak(backoffInfra(entrega));
+        } else {
+          log.warn({ err, entrega }, 'error de infraestructura; se reintentará sin contar para la DLQ');
+          msg.nak(backoffInfra(entrega));
+        }
+      } else if (decidirFallo(entrega, maxEntregas) === 'dlq') {
         log.error({ err, entrega }, 'entregas agotadas; a dead-letter');
         if (await aDlq(subjectDlqSeguro(env.type), msg, err, `dlq-${o.consumidor}-${env.event_id}`)) msg.term('entregas agotadas');
         else msg.nak(backoff(entrega));

@@ -1,6 +1,7 @@
 export { uuidv7 } from './ids.js';
 export { canonicalJson, sha256Hex } from './canonical.js';
 export { createPool } from './db/pool.js';
+export type { PoolOptions } from './db/pool.js';
 export { withTenant } from './db/tenant.js';
 export { runMigrations, listMigrationFiles } from './db/migrate.js';
 export { rlsPolicySql } from './db/rls.js';
@@ -8,7 +9,7 @@ export { outboxInboxSql } from './events/sql.js';
 export { enqueueEvent, startOutboxPublisher } from './events/outbox.js';
 export type { OutboxPublisherOptions } from './events/outbox.js';
 export { ensureStreams } from './events/streams.js';
-export { consumeEvents } from './events/consumer.js';
+export { consumeEvents, esErrorDeInfraestructura } from './events/consumer.js';
 export type { ConsumeEventsOptions, EventHandler } from './events/consumer.js';
 export { AppError, mapError } from './http/errors.js';
 export type { MappedError } from './http/errors.js';

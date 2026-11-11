@@ -24,7 +24,7 @@ initTelemetry('svc-auditoria');
 const logger = createLogger('svc-auditoria');
 await runMigrations(env.migratorUrl, fileURLToPath(new URL('../migrations', import.meta.url)));
 
-const pool = createPool(env.databaseUrl);
+const pool = createPool(env.databaseUrl, { logger });
 const nc = await connect({ servers: env.natsUrl });
 await ensureStreams(nc);
 const consumidor = await iniciarConsumidor({ pool, nc, logger });
