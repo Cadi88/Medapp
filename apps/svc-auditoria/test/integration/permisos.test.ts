@@ -23,10 +23,11 @@ describe('privilegios del rol de aplicación', () => {
     expect((await leer(env, A)).length).toBe(2);
   });
 
-  test('no puede borrar la cadena, pero sí actualizarla', async () => {
+  test('no puede borrar la cadena; tiene UPDATE, pero el trigger solo admite avances válidos', async () => {
     await expect(withTenant(env.appPool, A, (tx) => tx.query('delete from cadena'))).rejects.toThrow(/permission denied/);
-    const r = await withTenant(env.appPool, A, (tx) => tx.query('update cadena set ultima_secuencia = ultima_secuencia'));
-    expect(r.rowCount).toBe(1);
+    const r = await env.migrator.query("select has_table_privilege('test_app', 'cadena', 'UPDATE') as ok");
+    expect(r.rows[0].ok).toBe(true);
+    await expect(withTenant(env.appPool, A, (tx) => tx.query('update cadena set ultima_secuencia = ultima_secuencia'))).rejects.toThrow(/cadena/);
   });
 
   test('RLS: cada tenant ve solo sus filas y sin tenant no ve ninguna', async () => {

@@ -43,6 +43,21 @@ describe('aislamiento por tenant (RLS)', () => {
     c.release();
   });
 
+  test('FORCE RLS: el dueño de la tabla (migrador) sin tenant no ve filas ni puede insertar; con su tenant sí ve las suyas', async () => {
+    await withTenant(app, A, (tx) => tx.query("insert into nota values ($1,'del dueño')", [A]));
+    const dueno = createPool(pgh.migratorUrl);
+    try {
+      const esDueno = await dueno.query("select pg_get_userbyid(relowner) = current_user as ok from pg_class where relname = 'nota'");
+      expect(esDueno.rows[0].ok).toBe(true);
+      expect((await dueno.query('select * from nota')).rowCount).toBe(0);
+      await expect(dueno.query("insert into nota values ($1,'x')", [A])).rejects.toThrow(/row-level security/);
+      const propias = await withTenant(dueno, A, (tx) => tx.query('select texto from nota'));
+      expect(propias.rows.map((r) => r.texto)).toContain('del dueño');
+    } finally {
+      await dueno.end();
+    }
+  });
+
   test('no se puede insertar con tenant_id ajeno', async () => {
     await expect(withTenant(app, A, (tx) => tx.query("insert into nota values ($1,'x')", [B]))).rejects.toThrow(/row-level security/);
   });

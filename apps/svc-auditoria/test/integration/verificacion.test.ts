@@ -2,7 +2,7 @@ import type { Logger } from 'pino';
 import { afterAll, beforeAll, describe, expect, test, vi } from 'vitest';
 import { LOCK_VERIFICACION, ejecutarVerificacion } from '../../src/programador.js';
 import { verificarCadena } from '../../src/verificacion.js';
-import { comoDueno, leer, prepararBase, registrarN, tenantId, type Entorno } from './helpers.js';
+import { comoDueno, comoDuenoSinTrigger, leer, prepararBase, registrarN, tenantId, type Entorno } from './helpers.js';
 
 let env: Entorno;
 beforeAll(async () => {
@@ -68,8 +68,33 @@ describe('verificarCadena', () => {
   test('alterar el encabezado de la cadena (ultimo_hash) se detecta en la última secuencia', async () => {
     const A = tenantId();
     await registrarN(env, A, 3);
-    await comoDueno(env, A, "update cadena set ultimo_hash = repeat('b', 64)");
+    await comoDuenoSinTrigger(env, A, "update cadena set ultimo_hash = repeat('b', 64)");
     expect(await verificarCadena(env.appPool, A)).toEqual({ valida: false, rotaEnSecuencia: 3 });
+  });
+
+  test('F2: encabezado rebajado (saltándose el trigger) → rota en ultima_secuencia + 1 aunque el tramo 1..ultima sea íntegro', async () => {
+    const A = tenantId();
+    await registrarN(env, A, 4);
+    await comoDuenoSinTrigger(
+      env,
+      A,
+      'update cadena set ultima_secuencia = 2, ultimo_hash = (select hash from evento_auditoria e where e.tenant_id = cadena.tenant_id and e.secuencia = 2)',
+    );
+    expect(await verificarCadena(env.appPool, A)).toEqual({ valida: false, rotaEnSecuencia: 3 });
+  });
+
+  test('F2: eventos sin fila de encabezado → rota en 1', async () => {
+    const A = tenantId();
+    await registrarN(env, A, 2);
+    expect(await comoDueno(env, A, 'delete from cadena')).toBe(1);
+    expect(await verificarCadena(env.appPool, A)).toEqual({ valida: false, rotaEnSecuencia: 1 });
+  });
+
+  test('F2: encabezado en 0 (reiniciado sin trigger) con eventos → rota en 1', async () => {
+    const A = tenantId();
+    await registrarN(env, A, 2);
+    await comoDuenoSinTrigger(env, A, "update cadena set ultima_secuencia = 0, ultimo_hash = repeat('0', 64)");
+    expect(await verificarCadena(env.appPool, A)).toEqual({ valida: false, rotaEnSecuencia: 1 });
   });
 
   test('la verificación no confunde los datos de otro tenant', async () => {
@@ -102,6 +127,18 @@ describe('ejecutarVerificacion (tarea diaria)', () => {
     const alertas = l.error.mock.calls.filter(([o]) => o.alerta === 'cadena_auditoria_rota').map(([o]) => o);
     expect(alertas).toContainEqual({ alerta: 'cadena_auditoria_rota', tenant_id: mala, secuencia: 2 });
     expect(alertas.some((o) => o.tenant_id === buena)).toBe(false);
+  });
+
+  test('F2: un tenant con eventos pero sin encabezado aparece en la lista y se alerta', async () => {
+    const huerfano = tenantId();
+    await registrarN(env, huerfano, 2);
+    await comoDueno(env, huerfano, 'delete from cadena');
+    const lista = (await env.appPool.query<{ tenant_id: string }>('select tenant_id from fn_tenants_auditados()')).rows.map((r) => r.tenant_id);
+    expect(lista).toContain(huerfano);
+    const { l, logger: log } = logger();
+    await ejecutarVerificacion({ pool: env.appPool, logger: log });
+    const alertas = l.error.mock.calls.filter(([o]) => o.alerta === 'cadena_auditoria_rota').map(([o]) => o);
+    expect(alertas).toContainEqual({ alerta: 'cadena_auditoria_rota', tenant_id: huerfano, secuencia: 1 });
   });
 
   test('solo una réplica a la vez: con el advisory lock tomado por otra conexión no hace nada', async () => {

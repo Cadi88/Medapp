@@ -88,3 +88,19 @@ export interface FilaLeida {
 }
 
 export const range = (a: number, b: number): number[] => Array.from({ length: b - a + 1 }, (_, i) => a + i);
+
+/** Nombre del trigger que valida cada cambio del encabezado de la cadena (migración 002). */
+export const TRIGGER_CADENA = 'cadena_avance_valido';
+
+/**
+ * Como `comoDueno`, pero desactivando el trigger de integridad de `cadena` dentro de la misma transacción
+ * (el dueño puede hacerlo; `session_replication_role` exigiría superusuario). Simula a un atacante con el rol dueño.
+ */
+export async function comoDuenoSinTrigger(env: Entorno, tenant: string, sql: string, params: unknown[] = []): Promise<number> {
+  return withTenant(env.migrator, tenant, async (tx) => {
+    await tx.query(`ALTER TABLE cadena DISABLE TRIGGER ${TRIGGER_CADENA}`);
+    const r = await tx.query(sql, params);
+    await tx.query(`ALTER TABLE cadena ENABLE TRIGGER ${TRIGGER_CADENA}`);
+    return r.rowCount ?? 0;
+  });
+}
