@@ -45,7 +45,7 @@ describe('clasificarRuta', () => {
 });
 
 describe('filtrarCabecerasPeticion', () => {
-  const ctx = { traceId: 'trace-ok', ip: '203.0.113.9', protocolo: 'https' };
+  const ctx = { traceId: 'trace-ok', ip: '203.0.113.9', protocolo: 'https', servicio: 'identidad' as const };
 
   test('reenvía solo las permitidas y reemplaza el trace id', () => {
     const r = filtrarCabecerasPeticion(
@@ -85,6 +85,17 @@ describe('filtrarCabecerasPeticion', () => {
       'x-forwarded-for': '203.0.113.9',
       'x-forwarded-proto': 'https',
     });
+  });
+
+  test('F4: la cookie (sesión de Better Auth) solo se reenvía a identidad, nunca a auditoria', () => {
+    const entrantes = { authorization: 'Bearer abc', cookie: 'better-auth.session_token=s' };
+    expect(filtrarCabecerasPeticion(entrantes, { ...ctx, servicio: 'auditoria' })).toEqual({
+      authorization: 'Bearer abc',
+      'x-trace-id': 'trace-ok',
+      'x-forwarded-for': '203.0.113.9',
+      'x-forwarded-proto': 'https',
+    });
+    expect(filtrarCabecerasPeticion(entrantes, ctx).cookie).toBe('better-auth.session_token=s');
   });
 
   test('reenvía origin y user-agent (Better Auth valida el origen)', () => {

@@ -74,6 +74,18 @@ describe('autenticación', () => {
     expect(r.statusCode).toBe(401);
     expect(r.json()).toEqual(NO_AUTH);
   });
+  test('F4: token sin exp → 401', async () => {
+    const t = await jwks.sign(claims, { sinExp: true });
+    expect((await app.inject({ url: '/privada', headers: auth(t) })).statusCode).toBe(401);
+  });
+  test('F4: token emitido hace 20 min aunque exp siga en el futuro → 401 (vida máxima 15 min)', async () => {
+    const t = await jwks.sign(claims, { iat: Math.floor(Date.now() / 1000) - 20 * 60, expiresIn: '1h' });
+    expect((await app.inject({ url: '/privada', headers: auth(t) })).statusCode).toBe(401);
+  });
+  test('F4: token emitido hace 14 min y vigente → 200', async () => {
+    const t = await jwks.sign(claims, { iat: Math.floor(Date.now() / 1000) - 14 * 60, expiresIn: '5m' });
+    expect((await app.inject({ url: '/privada', headers: auth(t) })).statusCode).toBe(200);
+  });
   test('Review Focus 5: token sin tid → 401', async () => {
     const t = await jwks.sign({ sub: U, rol: 'admin', mfa: true });
     expect((await app.inject({ url: '/privada', headers: auth(t) })).statusCode).toBe(401);
@@ -237,6 +249,7 @@ describe('registro', () => {
     const t = await new SignJWT(claims)
       .setProtectedHeader({ alg: 'EdDSA', kid: 'k' })
       .setIssuer('svc-identidad')
+      .setIssuedAt()
       .setExpirationTime('5m')
       .sign(privateKey);
     expect((await a.inject({ url: '/privada', headers: auth(t) })).statusCode).toBe(200);

@@ -56,6 +56,25 @@ describe('runMigrations', () => {
     expect(t).toEqual([]);
   });
 
+  test('F4: el rol de la aplicación no puede leer, insertar ni borrar en schema_migrations (ni tras un GRANT previo)', async () => {
+    const dir = mkdir({ '4001_x.sql': 'CREATE TABLE x4 (id int);' });
+    await runMigrations(pgh.migratorUrl, dir);
+    // Simula una base existente en la que los privilegios por defecto ya habían concedido acceso al rol app.
+    await q('GRANT SELECT, INSERT, UPDATE, DELETE ON schema_migrations TO test_app');
+    await runMigrations(pgh.migratorUrl, dir);
+    const app = new pg.Client({ connectionString: pgh.appUrl });
+    await app.connect();
+    try {
+      await expect(app.query("INSERT INTO schema_migrations (nombre) VALUES ('9999_futura.sql')")).rejects.toThrow(/permission denied/);
+      await expect(app.query('DELETE FROM schema_migrations')).rejects.toThrow(/permission denied/);
+      await expect(app.query('UPDATE schema_migrations SET nombre = nombre')).rejects.toThrow(/permission denied/);
+    } finally {
+      await app.end();
+    }
+    const publico = await q<{ ok: boolean }>("select has_table_privilege('public', 'schema_migrations', 'INSERT') as ok");
+    expect(publico[0]!.ok).toBe(false);
+  });
+
   test('dos réplicas arrancando a la vez aplican cada archivo exactamente una vez', async () => {
     const dir = mkdir({
       '3001_c.sql': 'CREATE TABLE c1 (id int); SELECT pg_sleep(0.5);',

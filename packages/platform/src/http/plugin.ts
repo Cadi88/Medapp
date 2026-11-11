@@ -39,7 +39,13 @@ async function autenticar(request: FastifyRequest, key: JWTVerifyGetKey): Promis
   const m = BEARER_RE.exec(request.headers.authorization ?? '');
   if (!m?.[1]) throw noAutenticado();
   try {
-    const { payload } = await jwtVerify(m[1], key, { issuer: 'svc-identidad', algorithms: ['EdDSA'] });
+    // exp obligatorio y vida máxima de 15 min desde iat (también obligatorio con maxTokenAge), aunque exp diga más.
+    const { payload } = await jwtVerify(m[1], key, {
+      issuer: 'svc-identidad',
+      algorithms: ['EdDSA'],
+      requiredClaims: ['exp'],
+      maxTokenAge: '15m',
+    });
     const c = tokenClaimsSchema.parse(payload);
     return { tenantId: c.tid, usuarioId: c.sub, rol: c.rol, mfa: c.mfa };
   } catch (err) {

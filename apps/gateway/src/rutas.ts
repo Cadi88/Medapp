@@ -68,6 +68,8 @@ const HOP_BY_HOP = new Set([
 
 /** Cabeceras del cliente que se reenvían (lista cerrada: nada más cruza el gateway). */
 const REENVIADAS = ['authorization', 'cookie', 'content-type', 'origin', 'user-agent', 'accept', 'accept-language'] as const;
+/** La cookie es la sesión de Better Auth: solo la necesita identidad; ningún otro servicio la recibe. */
+const SOLO_IDENTIDAD = new Set<string>(['cookie']);
 
 export interface ContextoReenvio {
   /** Trace id ya sanitizado/generado por el plugin (nunca el valor crudo del cliente). */
@@ -75,6 +77,8 @@ export interface ContextoReenvio {
   /** IP del cliente según el gateway (`request.ip`, respeta `trustProxy`). */
   ip: string;
   protocolo: string;
+  /** Servicio destino: la cookie solo se reenvía a identidad. */
+  servicio: Servicio;
 }
 
 type Cabeceras = Record<string, string | string[] | undefined>;
@@ -82,6 +86,7 @@ type Cabeceras = Record<string, string | string[] | undefined>;
 export function filtrarCabecerasPeticion(entrantes: Cabeceras, ctx: ContextoReenvio): Record<string, string> {
   const salida: Record<string, string> = {};
   for (const nombre of REENVIADAS) {
+    if (SOLO_IDENTIDAD.has(nombre) && ctx.servicio !== 'identidad') continue;
     const v = entrantes[nombre];
     if (typeof v === 'string') salida[nombre] = v;
   }

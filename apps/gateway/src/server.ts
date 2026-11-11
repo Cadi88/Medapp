@@ -89,7 +89,7 @@ export async function buildGateway(o: GatewayOptions): Promise<FastifyInstance> 
     try {
       res = await undiciRequest(destino, {
         method: req.method as Metodo,
-        headers: filtrarCabecerasPeticion(req.headers, { traceId: req.ctx.traceId, ip: req.ip, protocolo: req.protocol }),
+        headers: filtrarCabecerasPeticion(req.headers, { traceId: req.ctx.traceId, ip: req.ip, protocolo: req.protocol, servicio: c.servicio }),
         body: Buffer.isBuffer(req.body) && req.body.length > 0 ? req.body : undefined,
         dispatcher: agente,
       });

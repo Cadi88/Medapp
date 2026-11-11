@@ -7,6 +7,10 @@ export interface SignOptions {
   /** Firma con una llave que NO está en el JWKS (mismo kid, para ejercitar la verificación de firma). */
   otraLlave?: boolean;
   issuer?: string;
+  /** Omite el claim `exp`. */
+  sinExp?: boolean;
+  /** `iat` explícito (segundos desde epoch); por defecto, ahora. */
+  iat?: number;
 }
 
 export interface TestJwks {
@@ -35,12 +39,12 @@ export async function startTestJwks(): Promise<TestJwks> {
   return {
     url: `http://127.0.0.1:${port}/.well-known/jwks.json`,
     async sign(claims, o = {}) {
-      return new SignJWT({ ...claims })
+      const jwt = new SignJWT({ ...claims })
         .setProtectedHeader({ alg: 'EdDSA', kid: KID })
         .setIssuer(o.issuer ?? 'svc-identidad')
-        .setIssuedAt()
-        .setExpirationTime(o.expiresIn ?? '15m')
-        .sign(o.otraLlave ? other.privateKey : good.privateKey);
+        .setIssuedAt(o.iat);
+      if (!o.sinExp) jwt.setExpirationTime(o.expiresIn ?? '15m');
+      return jwt.sign(o.otraLlave ? other.privateKey : good.privateKey);
     },
     stop: () =>
       new Promise<void>((r) => {

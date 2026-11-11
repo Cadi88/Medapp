@@ -124,6 +124,12 @@ describe('autenticación en el gateway', () => {
     expect(j.headers['x-trace-id']).toBe(r.headers['x-trace-id']);
   });
 
+  test('F4: la cookie del cliente no llega a auditoria', async () => {
+    const r = await gw.inject({ url: '/api/auditoria/eventos', headers: { ...auth(await jwks.sign(claims)), cookie: 'better-auth.session_token=s' } });
+    expect(r.statusCode).toBe(200);
+    expect(r.json().headers.cookie).toBeUndefined();
+  });
+
   test('ruta protegida de identidad con token llega a identidad', async () => {
     const r = await gw.inject({ url: '/api/identidad/miembros', headers: auth(await jwks.sign(claims)) });
     expect(r.statusCode).toBe(200);

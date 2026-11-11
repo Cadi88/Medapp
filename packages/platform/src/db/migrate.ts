@@ -5,6 +5,21 @@ import pg from 'pg';
 // Clave arbitraria fija del advisory lock de migraciones.
 const MIGRATION_LOCK_KEY = 7_262_024_001;
 
+const REVOCAR_SCHEMA_MIGRATIONS = `
+DO $$
+DECLARE r record;
+BEGIN
+  REVOKE ALL ON schema_migrations FROM PUBLIC;
+  FOR r IN
+    SELECT DISTINCT pg_get_userbyid(a.grantee) AS rol
+      FROM pg_class c, aclexplode(c.relacl) a
+     WHERE c.oid = 'schema_migrations'::regclass AND a.grantee <> 0 AND a.grantee <> c.relowner
+  LOOP
+    EXECUTE format('REVOKE ALL ON schema_migrations FROM %I', r.rol);
+  END LOOP;
+END
+$$`;
+
 export function listMigrationFiles(dir: string): string[] {
   return readdirSync(dir)
     .filter((f) => f.endsWith('.sql'))
@@ -25,6 +40,9 @@ export async function runMigrations(url: string, dir: string): Promise<string[]>
     await client.query(
       'CREATE TABLE IF NOT EXISTS schema_migrations (nombre text PRIMARY KEY, aplicado_en timestamptz NOT NULL DEFAULT now())',
     );
+    // Solo el dueño toca schema_migrations: los privilegios por defecto del migrador conceden DML al rol app, que
+    // podría insertar nombres de migraciones futuras (y así saltárselas). Se revoca en cada corrida (idempotente).
+    await client.query(REVOCAR_SCHEMA_MIGRATIONS);
     const done = new Set((await client.query<{ nombre: string }>('SELECT nombre FROM schema_migrations')).rows.map((r) => r.nombre));
     for (const file of files) {
       if (done.has(file)) continue;
