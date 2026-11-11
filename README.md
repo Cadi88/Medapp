@@ -86,6 +86,33 @@ Requisitos para un despliegue futuro (quien despliegue, con su cuenta):
    `produccion`, registra una revisión nueva de cada definición de tarea con esa imagen y la asigna al servicio. Un
    `cdk deploy` posterior debe pasar el `imageTag` que esté en producción.
 
+### Lista de verificación previa al primer despliegue
+
+Pendientes conocidos de la revisión final de la fase 0. Ninguno impide sintetizar ni probar en local, pero todos deben
+cerrarse (o aceptarse explícitamente) antes de poner datos reales en AWS:
+
+- [x] **Imágenes aprobadas**: sin `:latest`, ECR inmutable y CI que registra revisiones con `:<sha>` tras la aprobación
+      de `produccion` (paso 6).
+- [ ] **TLS hacia RDS**: conectar con `sslmode=verify-full` y el bundle de CA de RDS (`global-bundle.pem`) en la imagen, y
+      activar `rds.force_ssl` en el grupo de parámetros de PostgreSQL 16. Decidir también el TLS interno entre servicios
+      (hoy HTTP plano dentro de la VPC por Service Connect).
+- [ ] **Migraciones como tarea única**: hoy cada servicio corre `runMigrations` al arrancar con `MIGRATOR_DATABASE_URL`,
+      así que las credenciales del migrador (dueño de las tablas) viven en los servicios en ejecución. Pasar a una tarea
+      ECS de un solo uso (`run-task`) antes de cada despliegue y quitar ese secreto de las definiciones de tarea.
+- [ ] **Fijar la versión de NATS**: `MensajeriaStack` usa `nats:2`; fijar una versión exacta (idealmente por digest).
+- [ ] **Alerta de DLQ y script de replay**: alarma cuando el stream `DLQ` tenga mensajes y un script que reinyecte
+      `dlq.<type>` en `evt.<type>` (el inbox hace idempotente el reproceso). Los errores de infraestructura ya no van a la
+      DLQ salvo que la base esté caída más de 30 min.
+- [ ] **`req.ip` detrás de Service Connect**: verificar en un entorno de prueba que el gateway ve la IP real del cliente
+      (`CONFIAR_EN_PROXY` = CIDR de la VPC) y que identidad recibe el `x-forwarded-for` correcto; de ello dependen los
+      límites por IP.
+- [ ] **Telemetría real**: `initTelemetry` se llama después de importar `http`, `fastify` y `pg`, así que la
+      instrumentación automática no los parchea. Cargar el SDK antes que la aplicación (`node --import ./dist/telemetria.js`)
+      y configurar `OTEL_EXPORTER_OTLP_ENDPOINT`.
+- [ ] **Imágenes de producción sin código de pruebas**: `pnpm deploy --prod` ya excluye las devDependencies, pero el
+      `dist/` de `@consultorio/platform` incluye `testing/` (con Testcontainers como dependencia de producción) y la app
+      desplegada lleva su `src/` y `test/` (no declara `files`); sacar `src/`, `test/` y `testing`/Testcontainers de las imágenes.
+
 Notas de red: solo el ALB es público; `svc-identidad` y `svc-auditoria` solo aceptan tráfico del gateway (identidad confía en
 `x-forwarded-for`), y `CONFIAR_EN_PROXY` del gateway es el CIDR de la VPC (`10.0.0.0/16`). `svc-auditoria` lee el JWKS por la ruta
 pública del gateway (`/api/identidad/.well-known/jwks.json`) para no abrir identidad a otro origen. Con `CDK_DEFAULT_ACCOUNT`
