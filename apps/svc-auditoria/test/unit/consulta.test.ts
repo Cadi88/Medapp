@@ -26,6 +26,22 @@ describe('parseConsulta', () => {
   test('rechaza desde posterior a hasta', () => {
     expect(() => parseConsulta({ desde: '2026-02-01T00:00:00Z', hasta: '2026-01-01T00:00:00Z' })).toThrow(ZodError);
   });
+  test('acepta accion y antesDe (string → número)', () => {
+    expect(parseConsulta({ accion: 'cita.creada', antesDe: '10' })).toEqual({ accion: 'cita.creada', antesDe: 10, limite: 50 });
+    expect(parseConsulta({ accion: 'usuario.rol_cambiado' }).accion).toBe('usuario.rol_cambiado');
+  });
+  test.each([
+    ['accion inválida', { accion: 'DROP TABLE' }],
+    ['accion sin punto', { accion: 'cita' }],
+    ['accion con mayúsculas', { accion: 'Cita.creada' }],
+    ['accion vacía', { accion: '' }],
+    ['antesDe negativo', { antesDe: '-1' }],
+    ['antesDe cero', { antesDe: '0' }],
+    ['antesDe decimal', { antesDe: '1.5' }],
+    ['antesDe no numérico', { antesDe: 'abc' }],
+  ])('%s → ZodError', (_n, q) => {
+    expect(() => parseConsulta(q)).toThrow(ZodError);
+  });
   test('rechaza parámetros desconocidos', () => {
     expect(() => parseConsulta({ foo: '1' })).toThrow(ZodError);
   });
@@ -44,6 +60,14 @@ describe('construirListado', () => {
     expect(text).toMatch(/LIMIT \$4$/);
     expect(values).toEqual([T, '2026-01-01T00:00:00.000Z', '2026-01-02T00:00:00.000Z', 7]);
     expect(text).not.toContain('2026');
+  });
+  test('agrega accion y antesDe parametrizados', () => {
+    const { text, values } = construirListado(T, { accion: 'cita.creada', antesDe: 10, limite: 50 });
+    expect(text).toContain('accion = $2');
+    expect(text).toContain('secuencia < $3');
+    expect(text).toMatch(/LIMIT \$4$/);
+    expect(values).toEqual([T, 'cita.creada', 10, 50]);
+    expect(text).not.toContain('cita.creada');
   });
   test('solo hasta', () => {
     const { text, values } = construirListado(T, { hasta: '2026-01-02T00:00:00.000Z', limite: 1 });

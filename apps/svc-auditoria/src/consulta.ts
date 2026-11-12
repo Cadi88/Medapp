@@ -9,6 +9,14 @@ const consultaSchema = z
   .strictObject({
     desde: fechaIso.optional(),
     hasta: fechaIso.optional(),
+    accion: z.string().regex(/^[a-z_]+(\.[a-z_]+)+$/).optional(),
+    // Cursor: `secuencia` del último evento de la página anterior (orden de la cadena).
+    antesDe: z
+      .string()
+      .regex(/^[0-9]+$/)
+      .transform(Number)
+      .pipe(z.number().int().min(1).max(Number.MAX_SAFE_INTEGER))
+      .optional(),
     // La query llega como string: solo enteros positivos sin signo ni decimales.
     limite: z
       .string()
@@ -25,6 +33,8 @@ const consultaSchema = z
 export interface ConsultaEventos {
   desde?: string;
   hasta?: string;
+  accion?: string;
+  antesDe?: number;
   limite: number;
 }
 
@@ -34,6 +44,8 @@ export function parseConsulta(query: unknown): ConsultaEventos {
   return {
     ...(q.desde !== undefined ? { desde: q.desde } : {}),
     ...(q.hasta !== undefined ? { hasta: q.hasta } : {}),
+    ...(q.accion !== undefined ? { accion: q.accion } : {}),
+    ...(q.antesDe !== undefined ? { antesDe: q.antesDe } : {}),
     limite: q.limite ?? LIMITE_POR_DEFECTO,
   };
 }
@@ -52,6 +64,14 @@ export function construirListado(tenantId: string, q: ConsultaEventos): { text: 
   if (q.hasta !== undefined) {
     values.push(q.hasta);
     where.push(`ocurrido_en <= $${values.length}`);
+  }
+  if (q.accion !== undefined) {
+    values.push(q.accion);
+    where.push(`accion = $${values.length}`);
+  }
+  if (q.antesDe !== undefined) {
+    values.push(q.antesDe);
+    where.push(`secuencia < $${values.length}`);
   }
   values.push(q.limite);
   return {

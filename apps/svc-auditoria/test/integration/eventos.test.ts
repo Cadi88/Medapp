@@ -5,7 +5,7 @@ import { uuidv7 } from 'uuidv7';
 import { afterAll, beforeAll, describe, expect, test } from 'vitest';
 import { registrar } from '../../src/cadena.js';
 import { buildServer } from '../../src/server.js';
-import { evento, prepararBase, registrarN, tenantId, type Entorno } from './helpers.js';
+import { evento, prepararBase, range, registrarN, tenantId, type Entorno } from './helpers.js';
 
 let env: Entorno;
 let jwks: TestJwks;
@@ -93,5 +93,48 @@ describe('GET /eventos', () => {
     expect(await fechas('desde=2026-01-02T00:00:00Z&hasta=2026-01-02T23:00:00Z')).toEqual(['2026-01-02T10:00:00.000Z']);
     expect((await get('/eventos?desde=ayer', D)).statusCode).toBe(400);
     expect((await get('/eventos?desde=2026-02-01T00:00:00Z&hasta=2026-01-01T00:00:00Z', D)).statusCode).toBe(400);
+  });
+
+  test('paginar 120 eventos de 50 en 50 los recorre todos sin repetir', async () => {
+    const P = tenantId();
+    for (let i = 0; i < 120; i += 20) {
+      await Promise.all(Array.from({ length: 20 }, () => withTenant(env.appPool, P, (tx) => registrar(tx, evento(P)))));
+    }
+    type Pagina = { eventos: { secuencia: string }[]; siguiente: number | null };
+    const vistas: string[] = [];
+    const tamanos: number[] = [];
+    let antesDe: number | null = null;
+    do {
+      const r = await get(`/eventos?limite=50${antesDe === null ? '' : `&antesDe=${antesDe}`}`, P);
+      expect(r.statusCode).toBe(200);
+      const pagina: Pagina = r.json<Pagina>();
+      tamanos.push(pagina.eventos.length);
+      vistas.push(...pagina.eventos.map((e) => e.secuencia));
+      if (pagina.siguiente !== null) expect(typeof pagina.siguiente).toBe('number');
+      antesDe = pagina.siguiente;
+    } while (antesDe !== null);
+    expect(tamanos).toEqual([50, 50, 20]);
+    expect(new Set(vistas).size).toBe(120);
+    expect(vistas).toEqual(range(1, 120).reverse().map(String));
+  });
+
+  test('siguiente es null si hay menos filas que el límite', async () => {
+    expect((await get('/eventos?limite=10')).json()).toMatchObject({ siguiente: null });
+    expect((await get('/eventos?limite=5')).json()).toMatchObject({ siguiente: 1 });
+  });
+
+  test('filtra por accion exacta y valida el formato', async () => {
+    const F = tenantId();
+    await withTenant(env.appPool, F, (tx) => registrar(tx, evento(F)));
+    await withTenant(env.appPool, F, (tx) => registrar(tx, evento(F)));
+    const todos = (await get('/eventos', F)).json<{ eventos: { accion: string }[] }>().eventos;
+    const accion = todos[0]!.accion;
+    expect((await get(`/eventos?accion=${accion}`, F)).json<{ eventos: unknown[] }>().eventos).toHaveLength(2);
+    expect((await get('/eventos?accion=otra.cosa', F)).json<{ eventos: unknown[] }>().eventos).toHaveLength(0);
+    for (const q of ['accion=DROP%20TABLE', 'antesDe=-1', 'antesDe=0']) {
+      const e = await get(`/eventos?${q}`, F);
+      expect(e.statusCode, q).toBe(400);
+      expect(e.json()).toMatchObject({ code: 'VALIDACION' });
+    }
   });
 });

@@ -81,7 +81,7 @@ Los consumidores existentes (auditoría) aceptan `usuario.vinculado` v1 y v2. El
 
 ### 2.5 Bitácora
 
-`GET /auditoria/eventos` (solo admin) gana paginación por cursor (`?antesDe=<id>&limite=50`) y filtros `desde`, `hasta` y `accion`. La respuesta incluye `actorId`, y el sitio web resuelve el nombre con `GET /miembros`.
+`GET /auditoria/eventos` (solo admin) gana paginación por cursor (`?antesDe=<secuencia>&limite=50`) y filtros `desde`, `hasta` y `accion`. La respuesta es `{ eventos, siguiente }` (`siguiente` es la `secuencia` del último evento si la página vino llena, o `null`); cada evento incluye `actorId`, y el sitio web resuelve el nombre con `GET /miembros`.
 
 ---
 
