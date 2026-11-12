@@ -45,3 +45,12 @@ test('el admin da de alta a una recepcionista con contraseña temporal; ella la 
   await expect(ella.getByRole('navigation', { name: 'Principal' }).getByRole('link', { name: 'Agenda' })).toBeVisible();
   await contexto.close();
 });
+
+test('el sitio no se deja incrustar en marcos y envía las cabeceras de seguridad', async ({ page }) => {
+  const r = await page.goto('/login');
+  const cabeceras = r?.headers() ?? {};
+  expect(cabeceras['x-frame-options']).toBe('DENY');
+  expect(cabeceras['content-security-policy']).toBe("frame-ancestors 'none'");
+  expect(cabeceras['x-content-type-options']).toBe('nosniff');
+  expect(cabeceras['referrer-policy']).toBe('strict-origin-when-cross-origin');
+});

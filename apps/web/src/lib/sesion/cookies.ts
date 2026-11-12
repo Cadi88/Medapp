@@ -115,3 +115,12 @@ export async function cerrarSesion(): Promise<void> {
     if (esCookieDeSesion(c.name)) almacen.set(c.name, '', opcionesCookie(c.name, 0));
   }
 }
+
+/**
+ * Olvida el consultorio elegido y su token sin tocar la sesión de Better Auth. Se llama antes de iniciar sesión:
+ * en una PC compartida (recepción) la persona anterior no debe dejar su consultorio ni su JWT a la siguiente.
+ */
+export async function olvidarConsultorio(): Promise<void> {
+  const almacen = await cookies();
+  for (const nombre of [COOKIE_TOKEN, COOKIE_CONSULTORIO]) almacen.set(nombre, '', opcionesCookie(nombre, 0));
+}

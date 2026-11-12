@@ -6,7 +6,7 @@ import QRCode from 'qrcode';
 import type { z } from 'zod';
 import { ipDelCliente } from '@/lib/api/gateway';
 import type { Resultado } from '@/lib/api/resultado';
-import { cerrarSesion as borrarCookiesDeSesion, guardarConsultorio, guardarCookiesAuth, guardarToken } from '@/lib/sesion/cookies';
+import { cerrarSesion as borrarCookiesDeSesion, guardarConsultorio, guardarCookiesAuth, guardarToken, olvidarConsultorio } from '@/lib/sesion/cookies';
 import { destinoPorError } from '@/lib/sesion/desvios';
 import {
   cambiarPasswordEnApi,
@@ -99,6 +99,7 @@ export async function registrarConsultorio(_prev: EstadoFormulario, fd: FormData
     return { ...mostrarError(r), valores };
   }
 
+  await olvidarConsultorio();
   const s = await iniciarSesionConCorreo(d.email, d.password, ip);
   // La cuenta ya existe: si el inicio de sesión automático falla, que entre manualmente.
   if (!s.ok || !s.setCookies) return redirect('/login');
@@ -112,6 +113,8 @@ export async function iniciarSesion(_prev: EstadoFormulario, fd: FormData): Prom
   const v = leer(loginSchema, texto, valores);
   if ('estado' in v) return v.estado;
 
+  // PC compartida: el consultorio y el token de la persona anterior no pasan a esta sesión.
+  await olvidarConsultorio();
   const r = await iniciarSesionConCorreo(v.datos.email, v.datos.password, await ipActual());
   // Mismo mensaje para correo inexistente y contraseña errónea: no se revela cuál falló.
   if (!r.ok) return { ...(r.status === 401 ? { mensaje: MENSAJE_CREDENCIALES } : mostrarError(r)), valores };

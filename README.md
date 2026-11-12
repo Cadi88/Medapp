@@ -68,7 +68,8 @@ Fargate + EFS) y `Consultorio-Servicios` (ECR, ECS, ALB y secretos). El ALB env�
 `agenda_db` vive en la misma instancia RDS. El costo mensual estimado está al inicio de `infra/bin/app.ts`.
 
 **Es solo código: no hay nada desplegado y no se ha ejecutado ningún comando contra AWS.** `cdk bootstrap` y `cdk deploy`
-crean recursos que cuestan dinero (del orden de 200 USD/mes); no ejecutarlos antes de tener ingresos o presupuesto aprobado.
+crean recursos que cuestan dinero (unos 235 USD/mes según la estimación de `infra/bin/app.ts`; 400-450 USD/mes con
+alta disponibilidad); no ejecutarlos antes de tener ingresos o presupuesto aprobado.
 Lo siguiente es local y gratuito (no necesita credenciales de AWS):
 
 ```bash

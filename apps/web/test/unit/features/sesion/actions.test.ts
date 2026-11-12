@@ -8,6 +8,7 @@ const m = vi.hoisted(() => ({
   guardarToken: vi.fn(async () => undefined),
   guardarConsultorio: vi.fn(async () => undefined),
   cerrarSesionCookies: vi.fn(async () => undefined),
+  olvidarConsultorio: vi.fn(async () => undefined),
 }));
 
 vi.mock('next/headers', () => ({ headers: async () => new Headers({ 'x-forwarded-for': '9.9.9.9, 10.0.0.1' }) }));
@@ -25,6 +26,7 @@ vi.mock('@/lib/sesion/cookies', () => ({
   guardarToken: m.guardarToken,
   guardarConsultorio: m.guardarConsultorio,
   cerrarSesion: m.cerrarSesionCookies,
+  olvidarConsultorio: m.olvidarConsultorio,
 }));
 
 const acciones = await import('@/features/sesion/actions');
@@ -37,6 +39,14 @@ function formulario(campos: Record<string, string>): FormData {
   const fd = new FormData();
   for (const [k, v] of Object.entries(campos)) fd.set(k, v);
   return fd;
+}
+
+/** El consultorio de una sesión anterior (PC compartida de recepción) se olvida antes de iniciar sesión. */
+function olvidoAntesDelInicioDeSesion() {
+  expect(m.olvidarConsultorio).toHaveBeenCalledTimes(1);
+  const inicio = m.llamarGateway.mock.calls.findIndex(([r]) => r === '/api/identidad/auth/sign-in/email');
+  expect(inicio).toBeGreaterThanOrEqual(0);
+  expect(m.olvidarConsultorio.mock.invocationCallOrder[0]).toBeLessThan(m.llamarGateway.mock.invocationCallOrder[inicio]!);
 }
 
 /** Programa respuestas por ruta: `ruta → Resultado` (o función que lo calcula). */
@@ -75,6 +85,7 @@ describe('iniciarSesion', () => {
 
     await expect(acciones.iniciarSesion({}, formulario(cred))).rejects.toThrow('REDIRECT:/agenda');
     expect(m.guardarCookiesAuth).toHaveBeenCalledWith(['better-auth.session_token=s']);
+    olvidoAntesDelInicioDeSesion();
   });
 
   test('credenciales inválidas → "Correo o contraseña incorrectos" sin revelar cuál', async () => {
@@ -319,6 +330,7 @@ describe('registrarConsultorio', () => {
     });
     expect(llamadas('/api/identidad/auth/sign-in/email')[0]?.[1]).toMatchObject({ cuerpo: { email: 'ana@ejemplo.mx', password: 'una-clave-larga' } });
     expect(m.guardarCookiesAuth).toHaveBeenCalledWith(['better-auth.session_token=s']);
+    olvidoAntesDelInicioDeSesion();
   });
 
   test('sin marcar "soy médico" esMedico es false', async () => {

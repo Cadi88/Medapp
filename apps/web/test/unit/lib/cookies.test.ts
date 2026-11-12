@@ -16,6 +16,7 @@ const {
   interpretarSetCookie,
   leerConsultorio,
   leerToken,
+  olvidarConsultorio,
 } = await import('@/lib/sesion/cookies');
 
 const c = crearAlmacenCookies();
@@ -136,6 +137,20 @@ describe('token y consultorio', () => {
     expect(c.sets).toEqual([
       expect.objectContaining({ name: '__Secure-better-auth.session_token', value: '', maxAge: 0, secure: true }),
       expect.objectContaining({ name: 'token_consultorio', value: '', maxAge: 0, secure: false }),
+    ]);
+  });
+
+  test('olvidarConsultorio borra solo el token y el consultorio elegido (no la sesión de Better Auth)', async () => {
+    c.poner('better-auth.session_token', 's');
+    c.poner('token_consultorio', 'jwt-anterior');
+    c.poner('consultorio_id', 'c-anterior');
+
+    await olvidarConsultorio();
+
+    expect(c.almacen.getAll().map((x) => x.name)).toEqual(['better-auth.session_token']);
+    expect(c.sets).toEqual([
+      expect.objectContaining({ name: 'token_consultorio', value: '', maxAge: 0, httpOnly: true }),
+      expect.objectContaining({ name: 'consultorio_id', value: '', maxAge: 0, httpOnly: true }),
     ]);
   });
 
