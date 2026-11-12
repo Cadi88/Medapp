@@ -131,7 +131,7 @@ Regla de dependencias: `apps/svc-*` pueden depender de `packages/*`, nunca de ot
 |---|---|
 | `tenant` | id, nombre, slug público, zona_horaria, plan, estado_suscripcion |
 | `usuario` | id, email, nombre, mfa_activo |
-| `membresia` | usuario_id, tenant_id, rol (`admin`, `medico`, `recepcion`) |
+| `membresia` | usuario_id, tenant_id, rol (`medico`, `recepcion`), admin (boolean) — ver [Fase 1 · Entrega 1](2026-11-11-fase-1a-web-agenda-design.md) §2.1 |
 | `perfil_medico` | usuario_id, tenant_id, cedula_profesional, especialidad, cedula_especialidad, institucion |
 | `datos_fiscales` | tenant_id, rfc, razon_social, regimen_fiscal, cp, id del emisor en el PAC |
 
@@ -140,7 +140,7 @@ En `identidad`, las tablas `tenant` y `usuario` son globales (sin RLS por tenant
 ### 3.3 agenda
 | Tabla | Campos clave |
 |---|---|
-| `horario_medico` | medico_id, dia_semana, hora_inicio, hora_fin, duracion_cita_min |
+| `horario` | medico_id, dia_semana, hora_inicio, hora_fin (la duración vive en `tipo_cita`; ver Fase 1 · Entrega 1 §3.1) |
 | `bloqueo` | medico_id, rango (`tstzrange`), motivo |
 | `cita` | medico_id, rango (`tstzrange`), estado, contacto (nombre, teléfono, email), paciente_ref (nullable, id en expediente), origen (`recepcion`, `reserva_publica`) |
 
@@ -201,7 +201,7 @@ Reglas:
 - Cifrado en reposo: RDS y S3 con KMS.
 - Respaldos automáticos con PITR (retención 35 días) + exportación mensual a almacenamiento frío.
 - Hospedaje en la región AWS México (`mx-central-1`).
-- MFA obligatorio para usuarios con rol `medico` y `admin`.
+- MFA obligatorio para usuarios con rol `medico` o con permiso de administrador.
 
 ---
 
