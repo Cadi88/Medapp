@@ -1,4 +1,4 @@
-import { editarMiembroSchema, MiembroActualizado, UsuarioDesvinculado, UsuarioVinculado, type Miembro } from '@consultorio/contracts';
+import { editarMiembroSchema, MiembroActualizado, UsuarioDesvinculado, UsuarioVinculado, type AltaMiembroRespuesta, type Miembro } from '@consultorio/contracts';
 import { AppError, enqueueEvent, requireAdmin, withTenant } from '@consultorio/platform';
 import type { FastifyPluginAsync } from 'fastify';
 import type pg from 'pg';
@@ -129,7 +129,9 @@ export const miembrosRoutes: FastifyPluginAsync<MiembrosRoutesOptions> = async (
       }
       throw isUniqueViolation(err) ? yaMiembro() : err;
     }
-    return reply.code(201).send({ usuarioId: vinculado, rol: input.rol, admin: input.admin });
+    // `cuentaCreada: false`: la persona ya tenía cuenta y entra con su contraseña actual (la temporal no se aplicó).
+    const respuesta: AltaMiembroRespuesta = { usuarioId: vinculado, rol: input.rol, admin: input.admin, cuentaCreada: creado };
+    return reply.code(201).send(respuesta);
   });
 
   app.patch('/miembros/:usuarioId', { preHandler: requireAdmin() }, async (req) => {

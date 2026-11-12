@@ -81,6 +81,19 @@ describe('FormularioAltaMiembro', () => {
     expect(screen.getByLabelText('Administrador del consultorio')).toBeChecked();
   });
 
+  test('si la persona ya tenía cuenta avisa que entra con su contraseña actual y no muestra ninguna contraseña', async () => {
+    acciones.altaMiembro.mockResolvedValueOnce({ ok: true, cuentaExistente: true });
+    render(<FormularioAltaMiembro />);
+    await userEvent.type(screen.getByLabelText('Contraseña temporal'), 'Temporal-2026!');
+    await userEvent.click(screen.getByRole('button', { name: 'Agregar al equipo' }));
+    const aviso = await screen.findByRole('status');
+    expect(aviso).toHaveTextContent('Esta persona ya tenía cuenta; entra con su contraseña actual');
+    expect(aviso).not.toHaveTextContent('Contraseña temporal');
+    expect(screen.queryByText(/Temporal-2026!/)).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Entendido' }));
+    expect(screen.queryByRole('status')).not.toBeInTheDocument();
+  });
+
   test('error general de la API', async () => {
     acciones.altaMiembro.mockResolvedValueOnce({ mensaje: 'Ese correo ya pertenece a otra persona del consultorio' });
     render(<FormularioAltaMiembro />);

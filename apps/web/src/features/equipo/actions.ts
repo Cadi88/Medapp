@@ -25,7 +25,8 @@ export async function altaMiembro(_prev: EstadoPasswordTemporal, fd: FormData): 
   const r = await altaMiembroEnApi(v.data);
   if (!r.ok) return { ...estadoDeFallo(r, { CONFLICTO: 'Ese correo ya pertenece a otra persona del consultorio' }), valores };
   revalidatePath(RUTA);
-  return { ok: true, passwordTemporal: v.data.passwordTemporal };
+  // Una cuenta que ya existía conserva su contraseña: la temporal nunca se aplicó y no se muestra.
+  return r.datos.cuentaCreada ? { ok: true, passwordTemporal: v.data.passwordTemporal } : { ok: true, cuentaExistente: true };
 }
 
 export async function editarMiembro(_prev: EstadoFormulario, fd: FormData): Promise<EstadoFormulario> {

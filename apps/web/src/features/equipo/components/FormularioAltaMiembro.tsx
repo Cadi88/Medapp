@@ -8,6 +8,8 @@ import { altaMiembro } from '../actions';
 import type { EstadoPasswordTemporal } from '../tipos';
 import { AvisoPasswordTemporal } from './AvisoPasswordTemporal';
 
+const CUENTA_EXISTENTE = 'Esta persona ya tenía cuenta; entra con su contraseña actual.';
+
 export function FormularioAltaMiembro() {
   const [estado, accion, enviando] = useActionState<EstadoPasswordTemporal, FormData>(altaMiembro, {});
   const v = estado.valores;
@@ -20,9 +22,15 @@ export function FormularioAltaMiembro() {
   return (
     <form action={enviar} onChange={() => setDescartado(true)} className="grid max-w-xl gap-4" noValidate aria-label="Agregar persona al equipo">
       <AvisoDeError mensaje={estado.mensaje} />
-      {estado.passwordTemporal && !descartado ? (
+      {(estado.passwordTemporal || estado.cuentaExistente) && !descartado ? (
         <div className="grid gap-2">
-          <AvisoPasswordTemporal password={estado.passwordTemporal} />
+          {estado.passwordTemporal ? (
+            <AvisoPasswordTemporal password={estado.passwordTemporal} />
+          ) : (
+            <p role="status" className="rounded-md border bg-muted px-3 py-2 text-sm">
+              {CUENTA_EXISTENTE}
+            </p>
+          )}
           <Button type="button" variant="outline" size="sm" className="w-fit" onClick={() => setDescartado(true)}>
             Entendido
           </Button>

@@ -1,5 +1,6 @@
 // @vitest-environment node
 import { beforeEach, describe, expect, test, vi } from 'vitest';
+import { altaMiembroRespuestaSchema } from '@consultorio/contracts';
 import { exito, fallo } from '@/lib/api/resultado';
 
 const m = vi.hoisted(() => ({ llamarGateway: vi.fn(), revalidatePath: vi.fn() }));
@@ -45,19 +46,29 @@ describe('listarMiembros', () => {
 describe('altaMiembro', () => {
   const campos = { nombre: ' Luis Mora ', email: 'luis@ejemplo.mx', rol: 'recepcion', admin: 'on', passwordTemporal: 'Temporal-2026!' };
 
+  const creada = (cuentaCreada: boolean) => exito({ usuarioId: USUARIO, rol: 'recepcion', admin: true, cuentaCreada });
+
   test('envía el alta, revalida y devuelve la contraseña temporal una sola vez', async () => {
-    m.llamarGateway.mockResolvedValueOnce(exito({ usuarioId: USUARIO }));
+    m.llamarGateway.mockResolvedValueOnce(creada(true));
     const r = await acciones.altaMiembro({}, formulario(campos));
     expect(r).toEqual({ ok: true, passwordTemporal: 'Temporal-2026!' });
     expect(m.llamarGateway.mock.calls[0]).toMatchObject([
       '/api/identidad/miembros',
       { metodo: 'POST', auth: 'token', cuerpo: { nombre: 'Luis Mora', email: 'luis@ejemplo.mx', rol: 'recepcion', admin: true, passwordTemporal: 'Temporal-2026!' } },
     ]);
+    expect(m.llamarGateway.mock.calls[0]?.[1]).toMatchObject({ esquema: altaMiembroRespuestaSchema });
+    expect(m.revalidatePath).toHaveBeenCalledWith('/equipo');
+  });
+
+  test('si la persona ya tenía cuenta (cuentaCreada: false) no devuelve la contraseña temporal: nunca se aplicó', async () => {
+    m.llamarGateway.mockResolvedValueOnce(creada(false));
+    const r = await acciones.altaMiembro({}, formulario(campos));
+    expect(r).toEqual({ ok: true, cuentaExistente: true });
     expect(m.revalidatePath).toHaveBeenCalledWith('/equipo');
   });
 
   test('sin la casilla de admin envía admin=false', async () => {
-    m.llamarGateway.mockResolvedValueOnce(exito({}));
+    m.llamarGateway.mockResolvedValueOnce(creada(true));
     await acciones.altaMiembro({}, formulario({ ...campos, admin: '' }));
     expect(m.llamarGateway.mock.calls[0]?.[1]).toMatchObject({ cuerpo: { admin: false } });
   });

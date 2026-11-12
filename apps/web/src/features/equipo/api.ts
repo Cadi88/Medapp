@@ -1,5 +1,5 @@
 import 'server-only';
-import { miembrosRespuestaSchema, type Miembro } from '@consultorio/contracts';
+import { altaMiembroRespuestaSchema, miembrosRespuestaSchema, type Miembro } from '@consultorio/contracts';
 import { headers } from 'next/headers';
 import { ipDelCliente, llamarGateway } from '@/lib/api/gateway';
 import type { Resultado } from '@/lib/api/resultado';
@@ -16,7 +16,7 @@ export async function listarMiembros(): Promise<Resultado<Miembro[]>> {
 }
 
 export const altaMiembroEnApi = async (cuerpo: unknown) =>
-  llamarGateway(MIEMBROS, { metodo: 'POST', cuerpo, auth: 'token', ip: await ipActual() });
+  llamarGateway(MIEMBROS, { metodo: 'POST', cuerpo, auth: 'token', esquema: altaMiembroRespuestaSchema, ip: await ipActual() });
 
 export const editarMiembroEnApi = async (id: string, cuerpo: unknown) =>
   llamarGateway(`${MIEMBROS}/${encodeURIComponent(id)}`, { metodo: 'PATCH', cuerpo, auth: 'token', ip: await ipActual() });

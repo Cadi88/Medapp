@@ -1,3 +1,4 @@
+import { altaMiembroRespuestaSchema } from '@consultorio/contracts';
 import { withTenant } from '@consultorio/platform';
 import type { FastifyInstance } from 'fastify';
 import { afterAll, beforeAll, describe, expect, test } from 'vitest';
@@ -44,8 +45,9 @@ describe('POST /miembros', () => {
   test('crea usuario nuevo, membresía y emite usuario.vinculado con actor y trace_id', async () => {
     const r = await invitarMiembro(app, c.adminToken, { email: 'Nueva@Miembros.MX', nombre: 'Nueva', rol: 'recepcion', admin: false, passwordTemporal: PASSWORD });
     expect(r.statusCode).toBe(201);
-    const { usuarioId } = r.json<{ usuarioId: string }>();
+    const { usuarioId, cuentaCreada } = altaMiembroRespuestaSchema.parse(r.json());
     expect(usuarioId).toMatch(UUIDV7);
+    expect(cuentaCreada).toBe(true);
     expect(await q('select rol, admin from membresia where tenant_id = $1 and usuario_id = $2', [c.tenantId, usuarioId])).toEqual([
       { rol: 'recepcion', admin: false },
     ]);
@@ -111,7 +113,8 @@ describe('POST /miembros', () => {
     const usuariosAntes = (await q('select count(*)::int n from "user"'))[0].n;
     const r = await invitarMiembro(app, c.adminToken, { email: otro.adminEmail, nombre: 'Otro Nombre', rol: 'medico', admin: false, passwordTemporal: 'otra-temporal-999' });
     expect(r.statusCode).toBe(201);
-    expect(r.json().usuarioId).toBe(antes.id);
+    // La contraseña temporal no se aplicó: el sitio no debe mostrarla.
+    expect(altaMiembroRespuestaSchema.parse(r.json())).toEqual({ usuarioId: antes.id, rol: 'medico', admin: false, cuentaCreada: false });
     expect((await q('select count(*)::int n from "user"'))[0].n).toBe(usuariosAntes);
     const [despues] = await q(`select u.name, a.password from "user" u join account a on a."userId" = u.id where u.id = $1`, [antes.id]);
     expect(despues.password).toBe(antes.password);
