@@ -7,4 +7,6 @@ psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d postgres \
   -v identidad_app_pw="$IDENTIDAD_APP_PASSWORD" \
   -v auditoria_migrator_pw="$AUDITORIA_MIGRATOR_PASSWORD" \
   -v auditoria_app_pw="$AUDITORIA_APP_PASSWORD" \
+  -v agenda_migrator_pw="$AGENDA_MIGRATOR_PASSWORD" \
+  -v agenda_app_pw="$AGENDA_APP_PASSWORD" \
   -f /sql/init.sql

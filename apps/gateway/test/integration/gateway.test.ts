@@ -49,6 +49,7 @@ async function iniciarDestino(): Promise<Destino> {
 let jwks: TestJwks;
 let identidad: Destino;
 let auditoria: Destino;
+let agenda: Destino;
 let gw: FastifyInstance;
 const abiertos: FastifyInstance[] = [];
 let recibidos = 0;
@@ -56,7 +57,7 @@ let recibidos = 0;
 const nuevo = async (extra: Partial<Parameters<typeof buildGateway>[0]> = {}): Promise<FastifyInstance> => {
   const app = await buildGateway({
     jwksUrl: jwks.url,
-    destinos: { identidad: identidad.url, auditoria: auditoria.url },
+    destinos: { identidad: identidad.url, auditoria: auditoria.url, agenda: agenda.url },
     ...extra,
   });
   abiertos.push(app);
@@ -86,12 +87,14 @@ beforeAll(async () => {
   jwks = await startTestJwks();
   identidad = await iniciarDestino();
   auditoria = await iniciarDestino();
+  agenda = await iniciarDestino();
   gw = await nuevo();
 });
 afterAll(async () => {
   for (const a of abiertos) await a.close();
   await identidad.stop();
   await auditoria.stop();
+  await agenda.stop();
   await jwks.stop();
 });
 
@@ -100,6 +103,13 @@ describe('autenticación en el gateway', () => {
     const r = await gw.inject({ url: '/api/auditoria/eventos' });
     expect(r.statusCode).toBe(401);
     expect(r.json().code).toBe('NO_AUTENTICADO');
+  });
+
+  test('agenda: sin token → 401 y con token llega a agenda con método y cuerpo', async () => {
+    expect((await gw.inject({ method: 'POST', url: '/api/agenda/citas', payload: {} })).statusCode).toBe(401);
+    const r = await gw.inject({ method: 'PATCH', url: '/api/agenda/citas/abc', headers: auth(await jwks.sign(claims)), payload: { version: 1 } });
+    expect(r.statusCode).toBe(200);
+    expect(r.json()).toMatchObject({ method: 'PATCH', url: '/citas/abc', body: '{"version":1}' });
   });
 
   test('token de otra llave, expirado o sin tid → 401', async () => {
@@ -332,7 +342,7 @@ describe('destino no disponible', () => {
     const muerto = await iniciarDestino();
     const url = muerto.url;
     await muerto.stop();
-    const g = await nuevo({ destinos: { identidad: url, auditoria: url } });
+    const g = await nuevo({ destinos: { identidad: url, auditoria: url, agenda: url } });
     const r = await g.inject(registroReq);
     expect(r.statusCode).toBe(503);
     expect(r.json()).toEqual({ code: 'INTERNO', message: 'Servicio no disponible' });
@@ -347,7 +357,7 @@ describe('destino no disponible', () => {
     });
     await new Promise<void>((r) => lento.listen(0, '127.0.0.1', r));
     const url = `http://127.0.0.1:${(lento.address() as AddressInfo).port}`;
-    const g = await nuevo({ destinos: { identidad: url, auditoria: url }, timeoutDestinoMs: 200 });
+    const g = await nuevo({ destinos: { identidad: url, auditoria: url, agenda: url }, timeoutDestinoMs: 200 });
     const r = await g.inject(registroReq);
     expect(r.statusCode).toBe(503);
     expect(r.json().message).toBe('Servicio no disponible');

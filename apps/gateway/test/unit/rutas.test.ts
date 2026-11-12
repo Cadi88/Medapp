@@ -11,6 +11,10 @@ describe('clasificarRuta', () => {
     ['POST', '/api/identidad/sesion/tenant', 'sesion'],
     ['GET', '/api/identidad/miembros', 'protegida'],
     ['GET', '/api/auditoria/eventos', 'protegida'],
+    ['GET', '/api/agenda/medicos', 'protegida'],
+    ['POST', '/api/agenda/citas', 'protegida'],
+    ['PATCH', '/api/agenda/citas/abc', 'protegida'],
+    ['PUT', '/api/agenda/medicos/abc/horario', 'protegida'],
     ['GET', '/api/identidad/registro', 'protegida'],
     ['POST', '/api/identidad/tenants/mios', 'protegida'],
     ['DELETE', '/api/identidad/auth/x', 'protegida'],
@@ -37,6 +41,16 @@ describe('clasificarRuta', () => {
       rutaDestino: '/eventos?limite=5&x=a%20b',
     });
     expect(clasificarRuta('GET', '/api/identidad/medicos/abc/perfil?q=%C3%B1&r=%2F')?.rutaDestino).toBe('/medicos/abc/perfil?q=%C3%B1&r=%2F');
+  });
+
+  test('rutas /api/agenda/* son protegidas y se enrutan a AGENDA_URL', () => {
+    expect(clasificarRuta('GET', '/api/agenda/medicos/abc/disponibilidad?fecha=2030-01-07&tipoCitaId=x')).toEqual({
+      servicio: 'agenda',
+      rutaDestino: '/medicos/abc/disponibilidad?fecha=2030-01-07&tipoCitaId=x',
+      acceso: 'protegida',
+    });
+    expect(urlDestino('http://svc-agenda:3004', '/citas/abc/estado')).toBe('http://svc-agenda:3004/citas/abc/estado');
+    expect(clasificarRuta('GET', '/api/agenda')).toBeNull();
   });
 
   test('RUTAS_PUBLICAS solo contiene rutas de identidad', () => {

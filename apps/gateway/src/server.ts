@@ -8,7 +8,7 @@ export interface GatewayOptions {
   /** JWKS de svc-identidad con el que se verifican los tokens de tenant. */
   jwksUrl: string;
   /** URL base de cada servicio. */
-  destinos: { identidad: string; auditoria: string };
+  destinos: { identidad: string; auditoria: string; agenda: string };
   /** Peticiones por minuto y por IP en rutas públicas y de sesión (60). */
   limitePublicoPorMin?: number;
   /**
@@ -112,7 +112,7 @@ export async function buildGateway(o: GatewayOptions): Promise<FastifyInstance> 
   for (const r of RUTAS_LIMITADAS) {
     app.route({ method: r.metodos, url: r.url, config: { rateLimit: {} }, handler: proxear });
   }
-  for (const s of ['identidad', 'auditoria']) {
+  for (const s of ['identidad', 'auditoria', 'agenda']) {
     app.route({ method: METODOS, url: `/api/${s}/*`, handler: proxear });
   }
   return app;

@@ -1,12 +1,25 @@
 #!/usr/bin/env bash
 # Crea .env (ignorado por git) para el perfil `app` de docker compose si no existe:
 # contraseñas locales de .env.example + secretos generados aquí (nunca se versionan).
-# Para regenerar los secretos, borra .env y vuelve a ejecutar.
+# Si .env ya existe solo agrega las variables locales que falten. Para regenerar los secretos, borra .env y vuelve a ejecutar.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
 if [ -f .env ]; then
-  echo ".env ya existe; no se modifica."
+  # Solo agrega las contraseñas locales de .env.example que falten (p. ej. las de un servicio nuevo); nunca toca lo existente.
+  faltantes=0
+  while IFS= read -r linea; do
+    case "$linea" in
+      [A-Z]*_PASSWORD=*|[A-Z]*_USER=*)
+        if ! grep -q "^${linea%%=*}=" .env; then
+          [ "$faltantes" -eq 0 ] && printf '\n# Agregado por scripts/generar-dev-env.sh\n' >> .env
+          echo "$linea" >> .env
+          faltantes=$((faltantes + 1))
+        fi
+        ;;
+    esac
+  done < .env.example
+  echo ".env ya existe; se agregaron $faltantes variable(s) faltante(s)."
   exit 0
 fi
 

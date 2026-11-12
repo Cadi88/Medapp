@@ -6,6 +6,8 @@ export const BASE_URL = (process.env.E2E_BASE_URL ?? 'http://localhost:8080').re
 export const ORIGEN = process.env.E2E_ORIGIN ?? 'http://localhost:8080';
 export const PASSWORD = 'clave-e2e-segura-123';
 
+export type Metodo = 'GET' | 'POST' | 'PUT' | 'PATCH';
+
 export interface Respuesta<T = unknown> {
   status: number;
   cuerpo: T;
@@ -17,7 +19,7 @@ export interface Respuesta<T = unknown> {
  * respuesta (`x-retry-after`) y se reintenta: es respetar el límite, no una espera para sincronizar.
  */
 export async function peticion<T = unknown>(
-  metodo: 'GET' | 'POST',
+  metodo: Metodo,
   ruta: string,
   o: { cuerpo?: object; token?: string; cookie?: string } = {},
 ): Promise<Respuesta<T>> {
@@ -31,7 +33,7 @@ export async function peticion<T = unknown>(
 }
 
 async function enviar<T>(
-  metodo: 'GET' | 'POST',
+  metodo: Metodo,
   ruta: string,
   o: { cuerpo?: object; token?: string; cookie?: string },
 ): Promise<Respuesta<T> & { reintentarEnSeg?: number }> {

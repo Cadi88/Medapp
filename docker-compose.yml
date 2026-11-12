@@ -8,6 +8,8 @@ services:
       IDENTIDAD_APP_PASSWORD: ${IDENTIDAD_APP_PASSWORD:-identidad_app_local_dev}
       AUDITORIA_MIGRATOR_PASSWORD: ${AUDITORIA_MIGRATOR_PASSWORD:-auditoria_migrator_local_dev}
       AUDITORIA_APP_PASSWORD: ${AUDITORIA_APP_PASSWORD:-auditoria_app_local_dev}
+      AGENDA_MIGRATOR_PASSWORD: ${AGENDA_MIGRATOR_PASSWORD:-agenda_migrator_local_dev}
+      AGENDA_APP_PASSWORD: ${AGENDA_APP_PASSWORD:-agenda_app_local_dev}
     volumes:
       - pgdata:/var/lib/postgresql/data
       - ./docker/postgres/init.sql:/sql/init.sql:ro
@@ -84,6 +86,23 @@ services:
       nats: { condition: service_healthy }
       svc-identidad: { condition: service_healthy }
 
+  svc-agenda:
+    profiles: ["app"]
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.service
+      args: { APP: svc-agenda }
+    environment:
+      PORT: "3004"
+      DATABASE_URL: postgres://agenda_app:${AGENDA_APP_PASSWORD:-agenda_app_local_dev}@postgres:5432/agenda_db
+      MIGRATOR_DATABASE_URL: postgres://agenda_migrator:${AGENDA_MIGRATOR_PASSWORD:-agenda_migrator_local_dev}@postgres:5432/agenda_db
+      NATS_URL: nats://nats:4222
+      JWKS_URL: http://svc-identidad:3001/.well-known/jwks.json
+    depends_on:
+      postgres: { condition: service_healthy }
+      nats: { condition: service_healthy }
+      svc-identidad: { condition: service_healthy }
+
   gateway:
     profiles: ["app"]
     build:
@@ -96,11 +115,13 @@ services:
       JWKS_URL: http://svc-identidad:3001/.well-known/jwks.json
       IDENTIDAD_URL: http://svc-identidad:3001
       AUDITORIA_URL: http://svc-auditoria:3003
+      AGENDA_URL: http://svc-agenda:3004
       # En local todo llega de una sola IP: límite holgado para que la E2E repetida no choque con el rate limit.
       LIMITE_PUBLICO_POR_MIN: ${LIMITE_PUBLICO_POR_MIN:-1000}
     depends_on:
       svc-identidad: { condition: service_healthy }
       svc-auditoria: { condition: service_healthy }
+      svc-agenda: { condition: service_healthy }
 
 volumes:
   pgdata:

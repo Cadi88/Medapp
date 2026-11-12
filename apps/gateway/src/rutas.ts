@@ -1,6 +1,6 @@
 import { isPublicPath } from '@consultorio/platform';
 
-export type Servicio = 'identidad' | 'auditoria';
+export type Servicio = 'identidad' | 'auditoria' | 'agenda';
 export type Acceso = 'publica' | 'sesion' | 'protegida';
 
 export interface Clasificacion {
@@ -31,7 +31,7 @@ export const REGLAS_ABIERTAS: readonly ReglaAbierta[] = [
 /** Lista para `platformPlugin` (solo ruta, sin método: el método se vuelve a comprobar en el handler). */
 export const RUTAS_PUBLICAS: readonly string[] = REGLAS_ABIERTAS.map((r) => r.patron);
 
-const SERVICIOS: readonly Servicio[] = ['identidad', 'auditoria'];
+const SERVICIOS: readonly Servicio[] = ['identidad', 'auditoria', 'agenda'];
 
 const rutaSinQuery = (url: string): string => {
   const i = url.search(/[?#]/);
