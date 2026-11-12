@@ -1,6 +1,6 @@
-# SaaS para consultorios médicos (México) — Documento de diseño
+# SaaS para consultorios médicos (México, preparado para Bolivia) — Documento de diseño
 
-- **Fecha:** 2026-11-10
+- **Fecha:** 2026-11-10 · **Actualizado:** 2026-11-12 (diseño multipaís, §1.6 y §3.9)
 - **Estado:** Borrador para revisión
 - **Alcance de este documento:** arquitectura completa del MVP (fases 0–3). Cada fase tendrá su propio plan de implementación.
 
@@ -9,7 +9,7 @@
 ## 1. Contexto y objetivo
 
 ### 1.1 Qué estamos construyendo
-Un **SaaS multi-tenant** que se vende por suscripción a **consultorios médicos pequeños en México** (1–5 médicos). Cubre agenda con recordatorios, expediente clínico conforme a NOM-004, receta médica y facturación CFDI 4.0.
+Un **SaaS multi-tenant** que se vende por suscripción a **consultorios médicos pequeños en México** (1–5 médicos), diseñado para extenderse a **Bolivia** (§1.6). Cubre agenda con recordatorios, expediente clínico conforme a NOM-004, receta médica y facturación CFDI 4.0.
 
 ### 1.2 Decisiones del usuario (fuente: conversación de diseño)
 | Tema | Decisión |
@@ -42,6 +42,27 @@ Un **SaaS multi-tenant** que se vende por suscripción a **consultorios médicos
 | NOM-024-SSA3-2012 | Bitácora de auditoría, identificación de pacientes (CURP), catálogos (CIE-10), firma, integridad e intercambio → preparados ahora; HL7/CDA y e.firma después |
 | CFDI 4.0 (SAT) | Timbrado vía PAC; el CSD lo custodia el PAC |
 | LFPDPPP | Datos de salud = datos sensibles; aviso de privacidad, cifrado, hospedaje en México |
+
+Estas restricciones son las de México. Las de Bolivia están en §1.6.
+
+### 1.6 Alcance multipaís: México primero, Bolivia después
+**Decisión (2026-11-12):** el producto se lanza en México y se diseña desde ahora para operar también en Bolivia. Entrar a un país nuevo debe significar **agregar piezas** (validaciones, plantillas, un adaptador fiscal), no rehacer servicios ni migrar datos existentes.
+
+| Tema | México (`MX`) | Bolivia (`BO`) |
+|---|---|---|
+| Expediente | NOM-004-SSA3-2012 y NOM-024-SSA3-2012 | Norma técnica del Ministerio de Salud para el expediente clínico (resolución ministerial; confirmar número y contenido antes de la fase Bolivia) y secreto médico de la Ley 3131 |
+| Facturación | CFDI 4.0 timbrado por un PAC | Sistema de facturación en línea del SIN (SIAT), obligatorio por grupos de contribuyentes |
+| Paciente | CURP (opcional) | Carnet de identidad (CI) |
+| Emisor fiscal | RFC, régimen fiscal, código postal | NIT y datos de la modalidad de facturación SIAT |
+| Médico | Cédula profesional / de especialidad (SEP) | Matrícula profesional |
+| Protección de datos | LFPDPPP (datos de salud = sensibles) | Sin ley general aprobada; derecho constitucional a la privacidad y secreto médico. Se aplican los mismos controles que en México |
+| Moneda | MXN | BOB |
+| Zona horaria típica | `America/Mexico_City`, `America/Tijuana`, etc. | `America/La_Paz` (UTC-4, sin horario de verano) |
+| Cobro de la suscripción SaaS | Tarjeta (Stripe u otra pasarela) | Pago local (p. ej., QR interbancario); requiere definir la entidad que factura en Bolivia |
+
+**Pendientes no técnicos antes de la fase Bolivia:**
+- Asesoría contable y legal local sobre cómo facturar la suscripción a consultorios bolivianos (desde México o con una entidad allá) y sobre el IVA a servicios digitales provistos desde el exterior.
+- Confirmar los requisitos de la norma del expediente y si hay restricciones sobre dónde se hospedan los datos.
 
 ---
 
@@ -129,11 +150,11 @@ Regla de dependencias: `apps/svc-*` pueden depender de `packages/*`, nunca de ot
 ### 3.2 identidad
 | Tabla | Campos clave |
 |---|---|
-| `tenant` | id, nombre, slug público, zona_horaria, plan, estado_suscripcion |
+| `tenant` | id, nombre, slug público, **pais** (`MX`, `BO`), **moneda** (`MXN`, `BOB`), zona_horaria, plan, estado_suscripcion — ver §3.9 |
 | `usuario` | id, email, nombre, mfa_activo |
 | `membresia` | usuario_id, tenant_id, rol (`medico`, `recepcion`), admin (boolean) — ver [Fase 1 · Entrega 1](2026-11-11-fase-1a-web-agenda-design.md) §2.1 |
-| `perfil_medico` | usuario_id, tenant_id, cedula_profesional, especialidad, cedula_especialidad, institucion |
-| `datos_fiscales` | tenant_id, rfc, razon_social, regimen_fiscal, cp, id del emisor en el PAC |
+| `perfil_medico` | usuario_id, tenant_id, cedula_profesional, especialidad, cedula_especialidad, institucion — en Bolivia `cedula_profesional` guarda la matrícula profesional; la validación depende del país (§3.9) |
+| `datos_fiscales` | tenant_id, **id_fiscal_tipo** (`RFC`, `NIT`), **id_fiscal**, razon_social, **datos_pais** (JSON validado por país: en MX régimen fiscal y CP; en BO los datos de la modalidad SIAT), id del emisor en el proveedor fiscal — ver §3.9 |
 
 En `identidad`, las tablas `tenant` y `usuario` son globales (sin RLS por tenant; el acceso se controla en el servicio). `membresia`, `perfil_medico` y `datos_fiscales` sí tienen RLS.
 
@@ -150,7 +171,7 @@ En `identidad`, las tablas `tenant` y `usuario` son globales (sin RLS por tenant
 ### 3.4 expediente
 | Tabla | Campos clave |
 |---|---|
-| `paciente` | nombre, apellidos, fecha_nacimiento, sexo, curp (nullable, única por tenant), contacto, estado (`activo`, `archivado`) |
+| `paciente` | nombre, apellidos, fecha_nacimiento, sexo, **documento_tipo** (`CURP`, `CI`, `PASAPORTE`, nullable) y **documento_numero** (únicos juntos por tenant), contacto (teléfono en formato E.164), estado (`activo`, `archivado`) — ver §3.9 |
 | `historia_clinica` | paciente_id, antecedentes (JSON con esquema versionado) |
 | `consulta` | paciente_id, medico_id, cita_id (nullable), estado (`borrador`, `firmada`), nota SOAP (JSON + `plantilla_version`), firma |
 | `signos_vitales` | consulta_id, peso, talla, ta_sistolica, ta_diastolica, fc, fr, temperatura, spo2 |
@@ -173,12 +194,15 @@ Reglas:
 | Tabla | Campos clave |
 |---|---|
 | `cobro` | origen (`consulta`, `manual`), consulta_id (nullable), paciente_ref, concepto, monto, metodo (`efectivo`, `tarjeta`, `transferencia`), estado (`pendiente`, `pagado`, `anulado`) |
-| `factura` | cobro_id(s), receptor (RFC o público en general, régimen, uso CFDI, CP), estado (`pendiente`, `timbrando`, `timbrada`, `error`, `cancelada`), uuid_sat, xml_key, pdf_key, idempotency_key, error_mensaje |
+| `factura` | cobro_id(s), **pais**, receptor (JSON validado por país: en MX RFC o público en general, régimen, uso CFDI, CP; en BO NIT/CI o sin nombre), estado (`pendiente`, `timbrando`, `timbrada`, `error`, `cancelada`), **id_fiscal_externo** (UUID del SAT o código de autorización del SIN), xml_key, pdf_key, idempotency_key, error_mensaje |
+
+`cobro.monto` se guarda junto con la moneda del consultorio (`tenant.moneda`).
 
 Reglas:
-- Toda llamada al PAC lleva `idempotency_key` para no timbrar dos veces.
+- **Adaptador fiscal por país:** `facturacion` habla con una interfaz `ProveedorFiscal` (`emitir`, `cancelar`, `consultarEstado`). En México la implementa el adaptador del PAC (CFDI 4.0) y en Bolivia el adaptador SIAT. El resto del servicio no sabe qué país es.
+- Toda llamada al proveedor fiscal lleva `idempotency_key` para no emitir dos veces.
 - **El CSD del emisor lo custodia el PAC**; el sistema nunca almacena la llave privada.
-- Los servicios médicos están exentos de IVA cuando los presta un profesional con título; la configuración fiscal del concepto se define por tenant.
+- En México los servicios médicos están exentos de IVA cuando los presta un profesional con título; el tratamiento en Bolivia se define con la asesoría local. En ambos casos la configuración fiscal del concepto se define por tenant.
 
 ### 3.6 notificaciones
 | Tabla | Campos clave |
@@ -202,6 +226,30 @@ Reglas:
 - Respaldos automáticos con PITR (retención 35 días) + exportación mensual a almacenamiento frío.
 - Hospedaje en la región AWS México (`mx-central-1`).
 - MFA obligatorio para usuarios con rol `medico` o con permiso de administrador.
+- Consultorios de Bolivia: se hospedan en la misma región mientras la asesoría local no indique lo contrario (§1.6).
+
+### 3.9 Multipaís (México y Bolivia)
+**Principio:** el país es un atributo del consultorio (`tenant.pais`), fijado al registrarse y no editable desde la aplicación. Todo lo que depende del país se resuelve con **una sola tabla de reglas por país** en código, nunca con condicionales dispersos.
+
+1. **Reglas por país en `packages/contracts/src/paises/`:** un módulo por país (`mx.ts`, `bo.ts`) que exporta el mismo contrato `ReglasPais`:
+   - `monedas`, `zonasHorarias` sugeridas y prefijo telefónico;
+   - esquemas Zod de los identificadores: paciente (`CURP`/`CI`), emisor fiscal (`RFC`/`NIT`, más `datos_pais`) y registro profesional (cédula/matrícula);
+   - el catálogo de documentos y la plantilla base del expediente para ese país.
+   Los servicios y el sitio web validan con estas reglas, así que agregar un país es agregar un módulo y sus pruebas.
+2. **Identificadores genéricos en la base:** tipo + número (`documento_tipo`/`documento_numero`, `id_fiscal_tipo`/`id_fiscal`) en lugar de columnas como `curp` o `rfc`. Lo particular de cada país va en JSON validado por las reglas (`datos_pais`, `receptor`).
+3. **Teléfonos en E.164** (`+52…`, `+591…`) en todos los servicios; el sitio web los captura con el prefijo del país del consultorio.
+4. **Dinero:** importes en la unidad menor (centavos) junto con la moneda del consultorio; nunca se mezclan monedas en un mismo consultorio.
+5. **Expediente:** la plantilla de la nota depende de **país + especialidad** (`plantilla_version` ya existe en `consulta`). La NOM-004 define la plantilla mexicana; la norma boliviana, la suya.
+6. **Facturación:** un adaptador `ProveedorFiscal` por país (§3.5): CFDI vía PAC en México, SIAT en Bolivia.
+7. **Suscripción SaaS:** el cobro del producto también va detrás de un adaptador (pasarela con tarjeta en México; pago local en Bolivia).
+8. **Interfaz:** español para ambos países; textos que cambian por país (p. ej., "RFC" vs "NIT", "cédula" vs "matrícula") salen de las reglas del país, no se escriben fijos en los componentes.
+
+**Lo que se hace ya (antes de la fase Bolivia):**
+- `tenant.pais` y `tenant.moneda` se agregan en la próxima entrega que toque identidad (migración con valor por omisión `MX`/`MXN` para los consultorios existentes) y viajan en el evento `tenant.creado` (versión nueva). El registro pregunta el país (solo México habilitado hasta la fase Bolivia).
+- La Fase 2 (expediente) y la Fase 3 (facturación) se diseñan con los puntos 1–6 desde el inicio, aunque solo implementen México.
+- `datos_fiscales` (implementada en la Fase 0 con columnas `rfc`, `regimen_fiscal`, `cp`) se migra al modelo genérico en la Fase 3, que es la primera que la usa.
+
+**Lo que se hace en la fase Bolivia:** módulo `bo.ts` de reglas, plantilla del expediente boliviano, adaptador SIAT, cobro local de la suscripción y habilitar "Bolivia" en el registro.
 
 ---
 
@@ -326,6 +374,7 @@ Regla: ningún servicio se despliega si falla su prueba de aislamiento entre ten
 | **1 · Agenda** | agenda + notificaciones, reserva pública, recordatorios WhatsApp con respaldo SMS/email | Agenda en línea vendible; pilotos gratuitos |
 | **2 · Expediente** | expediente + receta: pacientes, historia clínica, SOAP, signos vitales, CIE-10, firma, adendas, receta con QR, adjuntos | Producto principal |
 | **3 · Facturación** | facturacion: cobros, caja, CFDI 4.0, cancelaciones; suscripción SaaS con Stripe | Producto completo, cobrando |
+| **4 · Bolivia** | Reglas `bo.ts`, plantilla de expediente boliviana, adaptador SIAT, cobro local de la suscripción, "Bolivia" habilitado en el registro (§3.9) | Venta en Bolivia |
 
 Cada fase tendrá su propio plan de implementación.
 
@@ -345,4 +394,5 @@ Cada fase tendrá su propio plan de implementación.
 | Fugas de datos entre consultorios | RLS obligatorio en la base + prueba de aislamiento que bloquea despliegues |
 | Cambios del SAT / PAC | Adaptador `PacAdapter`; el PAC absorbe cambios de esquema CFDI |
 | Costos y políticas de WhatsApp | Adaptador de mensajería; respaldo SMS/email; plantillas aprobadas por Meta |
+| Requisitos legales o fiscales de Bolivia no previstos | Reglas por país y adaptadores desde la Fase 2; asesoría local antes de la fase Bolivia (§1.6) |
 | Requisitos de certificación NOM-024 no previstos | Bitácora, firma, inmutabilidad y datos estructurados desde el día uno; revisión de la norma antes de la fase 2 |
