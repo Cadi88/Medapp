@@ -2,6 +2,7 @@ import { createHttpApp } from '@consultorio/platform';
 import type { FastifyInstance } from 'fastify';
 import type pg from 'pg';
 import { bloqueosRutas } from './rutas/bloqueos.js';
+import { citasRutas } from './rutas/citas.js';
 import { disponibilidadRutas } from './rutas/disponibilidad.js';
 import { horarioRutas } from './rutas/horario.js';
 import { medicosRutas } from './rutas/medicos.js';
@@ -25,6 +26,6 @@ export async function buildServer(o: ServerOptions): Promise<FastifyInstance> {
   await app.register(horarioRutas, { pool });
   await app.register(bloqueosRutas, { pool });
   await app.register(disponibilidadRutas, { pool, reloj });
-  // Las rutas de citas se registran en la tarea siguiente.
+  await app.register(citasRutas, { pool, reloj });
   return app;
 }

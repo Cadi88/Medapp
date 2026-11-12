@@ -1,6 +1,14 @@
 import { describe, expect, test } from 'vitest';
 import {
+  CitaCancelada,
+  CitaCreada,
+  CitaEstadoCambiado,
+  CitaReprogramada,
   bloqueHorarioSchema,
+  cambiarEstadoSchema,
+  citaSchema,
+  crearCitaSchema,
+  reprogramarCitaSchema,
   crearBloqueoSchema,
   crearTipoCitaSchema,
   disponibilidadSchema,
@@ -56,5 +64,45 @@ describe('bloqueos', () => {
 describe('disponibilidad', () => {
   test('forma de la respuesta', () => {
     expect(disponibilidadSchema.safeParse({ fecha: '2030-01-07', tipoCitaId: U, huecos: ['2030-01-07T15:00:00.000Z'] }).success).toBe(true);
+  });
+});
+
+describe('citas', () => {
+  const base = { medicoId: U, tipoCitaId: U, inicio: '2030-01-07T17:00:00Z', contacto: { nombre: 'Paciente', telefono: '+52 55 1234 5678' } };
+
+  test('crearCitaSchema valida contacto y asigna fueraDeHorario=false por omisión', () => {
+    const ok = crearCitaSchema.parse(base);
+    expect(ok.fueraDeHorario).toBe(false);
+    expect(crearCitaSchema.safeParse({ ...base, contacto: { nombre: '', telefono: '+52 55 1234 5678' } }).success).toBe(false);
+    expect(crearCitaSchema.safeParse({ ...base, contacto: { nombre: 'P', telefono: 'abc' } }).success).toBe(false);
+    expect(crearCitaSchema.safeParse({ ...base, contacto: { nombre: 'P', telefono: '5555555555', email: 'no-es-correo' } }).success).toBe(false);
+    expect(crearCitaSchema.safeParse({ ...base, notas: 'x'.repeat(1001) }).success).toBe(false);
+    expect(crearCitaSchema.safeParse({ ...base, inicio: 'mañana' }).success).toBe(false);
+    expect(crearCitaSchema.safeParse({ ...base, extra: 1 }).success).toBe(false);
+  });
+
+  test('reprogramarCitaSchema exige versión e inicio; cambiarEstadoSchema, un estado válido', () => {
+    expect(reprogramarCitaSchema.safeParse({ version: 1, inicio: '2030-01-07T17:00:00-06:00' }).success).toBe(true);
+    expect(reprogramarCitaSchema.safeParse({ inicio: '2030-01-07T17:00:00Z' }).success).toBe(false);
+    expect(reprogramarCitaSchema.safeParse({ version: 0, inicio: '2030-01-07T17:00:00Z' }).success).toBe(false);
+    expect(cambiarEstadoSchema.safeParse({ version: 2, estado: 'cancelada' }).success).toBe(true);
+    expect(cambiarEstadoSchema.safeParse({ version: 2, estado: 'otra' }).success).toBe(false);
+  });
+
+  test('citaSchema acepta contacto sin email y notas ausentes', () => {
+    const c = { id: U, medicoId: U, tipoCitaId: U, inicio: '2030-01-07T17:00:00.000Z', fin: '2030-01-07T17:30:00.000Z', estado: 'agendada', contacto: { nombre: 'P', telefono: '5555555555' }, fueraDeHorario: false, version: 1 };
+    expect(citaSchema.safeParse(c).success).toBe(true);
+  });
+});
+
+describe('eventos de cita', () => {
+  const meta = { tenantId: U, actorId: U, traceId: 't' };
+  test('son v1 y rechazan datos que no son del contrato', () => {
+    const ev = CitaCancelada.create({ ...meta, data: { citaId: U, medicoId: U, inicio: '2030-01-07T17:00:00.000Z', fin: '2030-01-07T17:30:00.000Z' } });
+    expect(ev.type).toBe('cita.cancelada');
+    expect(ev.version).toBe(1);
+    expect(CitaEstadoCambiado.parse(CitaEstadoCambiado.create({ ...meta, data: { citaId: U, medicoId: U, estadoAnterior: 'agendada', estado: 'confirmada' } })).data.estado).toBe('confirmada');
+    expect(CitaCreada.type).toBe('cita.creada');
+    expect(CitaReprogramada.type).toBe('cita.reprogramada');
   });
 });
