@@ -52,6 +52,49 @@ importers:
         specifier: ^24.0.0
         version: 24.19.2
 
+  apps/svc-agenda:
+    dependencies:
+      '@consultorio/contracts':
+        specifier: workspace:*
+        version: link:../../packages/contracts
+      '@consultorio/platform':
+        specifier: workspace:*
+        version: link:../../packages/platform
+      '@nats-io/transport-node':
+        specifier: ^3.4.0
+        version: 3.4.0
+      fastify:
+        specifier: ^5.12.8
+        version: 5.12.8
+      luxon:
+        specifier: ^3.7.2
+        version: 3.7.2
+      pg:
+        specifier: ^8.13.0
+        version: 8.23.1
+      pino:
+        specifier: ^10.4.0
+        version: 10.4.0
+      zod:
+        specifier: ^4.6.7
+        version: 4.6.7
+    devDependencies:
+      '@nats-io/jetstream':
+        specifier: ^3.4.0
+        version: 3.4.0
+      '@types/luxon':
+        specifier: ^3.7.1
+        version: 3.7.6
+      '@types/node':
+        specifier: ^24.0.0
+        version: 24.19.2
+      '@types/pg':
+        specifier: ^8.11.0
+        version: 8.23.1
+      uuidv7:
+        specifier: ^1.2.1
+        version: 1.2.1
+
   apps/svc-auditoria:
     dependencies:
       '@consultorio/contracts':
@@ -1053,6 +1096,9 @@ packages:
 
   '@types/json5@0.0.29':
     resolution: {integrity: sha512-dRLjCWHYg4oaA77cxO64oO+7JwCwnIzkZPdrrC71jQmQtlhM556pwKo5bUzqvZndkVbeFLIIi+9TC40JNF5hNQ==}
+
+  '@types/luxon@3.7.6':
+    resolution: {integrity: sha512-6KSjliQAXK8ZLgFQO4B7iE4Rpf/B3rItzCFuXezBY/XIAGxOdLd7vRNK9/StRPwiS/yJsVbB7HKpW46B8tcEuQ==}
 
   '@types/node@18.19.130':
     resolution: {integrity: sha512-GRaXQx6jGfL8sKfaIDD6OupbIHBr9jv7Jnaml9tB7l4v068PAOXqfcujMMo5PhbIs6ggR1XODELqahT2R8v0fg==}
@@ -2381,6 +2427,10 @@ packages:
 
   lru-cache@10.4.3:
     resolution: {integrity: sha512-JNAzZcXrCt42VGLuYz0zfAzDfAvJWW6AfYlDBQyDV5DClI2m5sAmK+OIO7s59XfsRsWHp02jAJrRadPRGTt6SQ==}
+
+  luxon@3.7.2:
+    resolution: {integrity: sha512-vtEhXh/gNjI9Yg1u4jX/0YVPMvxzHuGgCm6tC5kZyb08yjGWGnqAjGJvcXbqQR2P3MyMEFnRbpcdFS6PBcLqew==}
+    engines: {node: '>=12'}
 
   magic-string@1.4.5:
     resolution: {integrity: sha512-oLLC2+YvQUfAa+vxoufE/yc1icb87M9iXIRqAoR/2EhE/8cb3SF/+Gi0c2By1B+5Vz2e2vQtUvHiu1+63Znh+w==}
@@ -3900,6 +3950,8 @@ snapshots:
 
   '@types/json5@0.0.29': {}
 
+  '@types/luxon@3.7.6': {}
+
   '@types/node@18.19.130':
     dependencies:
       undici-types: 5.26.5
@@ -5304,6 +5356,8 @@ snapshots:
   long@5.3.2: {}
 
   lru-cache@10.4.3: {}
+
+  luxon@3.7.2: {}
 
   magic-string@1.4.5:
     dependencies:
