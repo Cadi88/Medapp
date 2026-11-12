@@ -50,6 +50,24 @@ describe('FormularioAltaMiembro', () => {
     expect(screen.queryByText(/Temporal-2026!/)).not.toBeInTheDocument();
   });
 
+  test('"Entendido" descarta el aviso de la contraseña temporal', async () => {
+    acciones.altaMiembro.mockResolvedValueOnce({ ok: true, passwordTemporal: 'Temporal-2026!' });
+    render(<FormularioAltaMiembro />);
+    await userEvent.click(screen.getByRole('button', { name: 'Agregar al equipo' }));
+    expect(await screen.findByRole('status')).toHaveTextContent('Temporal-2026!');
+    await userEvent.click(screen.getByRole('button', { name: 'Entendido' }));
+    expect(screen.queryByText(/Temporal-2026!/)).not.toBeInTheDocument();
+  });
+
+  test('empezar a escribir otra alta descarta el aviso anterior', async () => {
+    acciones.altaMiembro.mockResolvedValueOnce({ ok: true, passwordTemporal: 'Temporal-2026!' });
+    render(<FormularioAltaMiembro />);
+    await userEvent.click(screen.getByRole('button', { name: 'Agregar al equipo' }));
+    expect(await screen.findByRole('status')).toBeInTheDocument();
+    await userEvent.type(screen.getByLabelText('Nombre'), 'Ana');
+    expect(screen.queryByText(/Temporal-2026!/)).not.toBeInTheDocument();
+  });
+
   test('muestra los errores de campo y conserva lo escrito', async () => {
     acciones.altaMiembro.mockResolvedValueOnce({
       errores: { email: 'Escribe un correo válido' },
@@ -106,6 +124,23 @@ describe('TablaMiembros', () => {
     expect(await within(dialogo).findByRole('status')).toHaveTextContent('Otra-Temporal-1');
     const fd = acciones.reiniciarPassword.mock.calls[0]?.[1] as FormData;
     expect(fd.get('usuarioId')).toBe(miembros[1]?.usuarioId);
+  });
+
+  test('al cerrar y reabrir el diálogo la contraseña temporal ya no se ve', async () => {
+    acciones.reiniciarPassword.mockResolvedValueOnce({ ok: true, passwordTemporal: 'Otra-Temporal-1' });
+    render(<TablaMiembros miembros={[miembros[1] as Miembro]} />);
+    await userEvent.click(screen.getByRole('button', { name: 'Reiniciar contraseña' }));
+    let dialogo = await screen.findByRole('dialog');
+    await userEvent.type(within(dialogo).getByLabelText('Contraseña temporal'), 'Otra-Temporal-1');
+    await userEvent.click(within(dialogo).getByRole('button', { name: 'Reiniciar contraseña' }));
+    expect(await within(dialogo).findByRole('status')).toHaveTextContent('Otra-Temporal-1');
+
+    await userEvent.keyboard('{Escape}');
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Reiniciar contraseña' }));
+    dialogo = await screen.findByRole('dialog');
+    expect(within(dialogo).queryByRole('status')).not.toBeInTheDocument();
+    expect(screen.queryByText(/Otra-Temporal-1/)).not.toBeInTheDocument();
   });
 
   test('reiniciar contraseña muestra el error de la API', async () => {

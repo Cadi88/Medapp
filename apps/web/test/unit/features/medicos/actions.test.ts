@@ -99,8 +99,8 @@ describe('guardarSemana', () => {
   });
 
   test('el 400 de la API muestra su mensaje; 403 desvía a /sin-acceso', async () => {
-    m.llamarGateway.mockResolvedValueOnce(fallo(400, error('VALIDACION', 'Los bloques del horario se enciman')));
-    expect((await acciones.guardarSemana({}, formulario({ medicoId: MEDICO }, filas))).mensaje).toBe('Los bloques del horario se enciman');
+    m.llamarGateway.mockResolvedValueOnce(fallo(400, error('VALIDACION', 'texto técnico interno')));
+    expect((await acciones.guardarSemana({}, formulario({ medicoId: MEDICO }, filas))).mensaje).toBe('Revisa el horario: hay bloques inválidos o encimados');
     m.llamarGateway.mockResolvedValueOnce(fallo(403, error('PROHIBIDO')));
     await expect(acciones.guardarSemana({}, formulario({ medicoId: MEDICO }, filas))).rejects.toThrow('REDIRECT:/sin-acceso');
   });

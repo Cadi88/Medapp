@@ -68,3 +68,11 @@ describe('TablaBitacora', () => {
     expect(screen.getByRole('button', { name: 'Ver más' })).toBeInTheDocument();
   });
 });
+
+describe('TablaBitacora · actor que ya no es miembro', () => {
+  test('con actor_id desconocido muestra "Exmiembro" (no "Sistema")', () => {
+    render(<TablaBitacora nombres={{}} zona="America/Mexico_City" filtros={{}} eventos={[evento(1, { actor_id: '01a1cd34-0000-7000-8000-000000000001' })]} siguiente={null} />);
+    expect(screen.getByText('Exmiembro (01a1cd34)')).toBeInTheDocument();
+    expect(screen.queryByText('Sistema')).not.toBeInTheDocument();
+  });
+});

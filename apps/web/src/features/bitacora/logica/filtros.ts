@@ -35,7 +35,8 @@ export function consultaDesdeParametros(p: Record<string, Parametro>, zona: stri
 }
 
 export function nombreDelActor(actorId: string | null | undefined, nombres: Record<string, string>): string {
-  return (actorId ? nombres[actorId] : undefined) ?? 'Sistema';
+  if (!actorId) return 'Sistema';
+  return nombres[actorId] ?? `Exmiembro (${actorId.slice(0, 8)})`;
 }
 
 /** "12 nov 2026, 10:00" en la zona del consultorio. */

@@ -11,8 +11,25 @@ import { editarMiembro, quitarMiembro, reiniciarPassword } from '../actions';
 import type { EstadoPasswordTemporal } from '../tipos';
 import { AvisoPasswordTemporal } from './AvisoPasswordTemporal';
 
-function ReiniciarPassword({ miembro }: { miembro: Miembro }) {
+/** Vive dentro de `DialogContent`: al cerrar el diálogo se desmonta y la contraseña mostrada se descarta. */
+function FormularioReinicio({ miembro }: { miembro: Miembro }) {
   const [estado, accion, enviando] = useActionState<EstadoPasswordTemporal, FormData>(reiniciarPassword, {});
+  return (
+    <form action={accion} className="grid gap-4" noValidate>
+      <input type="hidden" name="usuarioId" value={miembro.usuarioId} />
+      <AvisoDeError mensaje={estado.mensaje} />
+      {estado.passwordTemporal ? <AvisoPasswordTemporal password={estado.passwordTemporal} /> : null}
+      <Campo nombre="passwordTemporal" etiqueta="Contraseña temporal" autoComplete="off" error={estado.errores?.passwordTemporal} />
+      <DialogFooter>
+        <Button type="submit" disabled={enviando}>
+          {enviando ? 'Guardando…' : 'Reiniciar contraseña'}
+        </Button>
+      </DialogFooter>
+    </form>
+  );
+}
+
+function ReiniciarPassword({ miembro }: { miembro: Miembro }) {
   return (
     <Dialog>
       <DialogTrigger asChild>
@@ -25,17 +42,7 @@ function ReiniciarPassword({ miembro }: { miembro: Miembro }) {
           <DialogTitle>Reiniciar contraseña de {miembro.nombre}</DialogTitle>
           <DialogDescription>Escribe una contraseña temporal; la persona deberá cambiarla al entrar.</DialogDescription>
         </DialogHeader>
-        <form action={accion} className="grid gap-4" noValidate>
-          <input type="hidden" name="usuarioId" value={miembro.usuarioId} />
-          <AvisoDeError mensaje={estado.mensaje} />
-          {estado.passwordTemporal ? <AvisoPasswordTemporal password={estado.passwordTemporal} /> : null}
-          <Campo nombre="passwordTemporal" etiqueta="Contraseña temporal" autoComplete="off" error={estado.errores?.passwordTemporal} />
-          <DialogFooter>
-            <Button type="submit" disabled={enviando}>
-              {enviando ? 'Guardando…' : 'Reiniciar contraseña'}
-            </Button>
-          </DialogFooter>
-        </form>
+        <FormularioReinicio miembro={miembro} />
       </DialogContent>
     </Dialog>
   );

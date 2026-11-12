@@ -47,9 +47,9 @@ describe('consultaDesdeParametros', () => {
 
 describe('nombreDelActor', () => {
   const nombres = { a1: 'Dra. Ruiz' };
-  test('resuelve el nombre; sin actor o desconocido es "Sistema"', () => {
+  test('resuelve el nombre; sin actor es "Sistema"; un actor que ya no es miembro es "Exmiembro" con su id corto', () => {
     expect(nombreDelActor('a1', nombres)).toBe('Dra. Ruiz');
     expect(nombreDelActor(null, nombres)).toBe('Sistema');
-    expect(nombreDelActor('otro', nombres)).toBe('Sistema');
+    expect(nombreDelActor('01a1cd34-0000-7000-8000-000000000001', nombres)).toBe('Exmiembro (01a1cd34)');
   });
 });

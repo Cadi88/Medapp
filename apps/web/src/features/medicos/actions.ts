@@ -25,8 +25,8 @@ export async function guardarSemana(_prev: EstadoFormulario, fd: FormData): Prom
   const v = validarSemana(bloques);
   if (!v.ok) return { mensaje: v.error };
   const r = await guardarHorarioEnApi(medicoId.data, bloques);
-  // 400: el servicio explica qué bloques se enciman o qué hora es inválida (el texto ya viene en español).
-  if (!r.ok) return estadoDeFallo(r, r.error.code === 'VALIDACION' ? { VALIDACION: r.error.message } : {});
+  // 400: texto fijo; el detalle del servicio no se muestra.
+  if (!r.ok) return estadoDeFallo(r, { VALIDACION: 'Revisa el horario: hay bloques inválidos o encimados' });
   revalidatePath(ficha(medicoId.data));
   return { ok: true };
 }
