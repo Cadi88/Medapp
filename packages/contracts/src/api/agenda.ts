@@ -3,7 +3,7 @@ import { z } from 'zod';
 export const medicoAgendaSchema = z.object({ usuarioId: z.uuid(), nombre: z.string() });
 export type MedicoAgenda = z.infer<typeof medicoAgendaSchema>;
 
-const nombreTipo = z.string().min(1).max(80);
+const nombreTipo = z.string().trim().min(1).max(80);
 const duracion = z.number().int().min(5).max(480);
 
 export const tipoCitaSchema = z.object({

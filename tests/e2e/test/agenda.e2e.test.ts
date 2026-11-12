@@ -3,6 +3,8 @@ import { crearConsultorio, peticion, slugUnico } from './cliente.js';
 
 interface Evento {
   accion: string;
+  /** Datos del evento tal como los publicó el servicio (contrato v1, spec §3.5). */
+  detalle: Record<string, unknown> | null;
 }
 interface Cita {
   id: string;
@@ -81,9 +83,18 @@ describe('Agenda de punta a punta (a través del gateway)', () => {
         const r = await peticion<{ eventos: Evento[] }>('GET', '/api/auditoria/eventos', { token });
         expect(r.status).toBe(200);
         expect(r.cuerpo.eventos.map((e) => e.accion)).toEqual(expect.arrayContaining(['cita.creada', 'cita.reprogramada', 'cita.cancelada']));
+        return r.cuerpo.eventos;
       },
       { timeout: 20_000, interval: 500 },
-    );
+    ).then((eventos) => {
+      const detalle = (accion: string) => eventos.find((e) => e.accion === accion)?.detalle;
+      const citaId = creada.cuerpo.id;
+      expect(detalle('cita.creada')).toMatchObject({ citaId, medicoId, tipoCitaId: tipo.cuerpo.id, estado: 'agendada', origen: 'recepcion', fueraDeHorario: false });
+      expect(detalle('cita.reprogramada')).toMatchObject({ citaId, medicoId, inicio: movida.cuerpo.inicio, anterior: { medicoId, inicio: creada.cuerpo.inicio } });
+      expect(detalle('cita.cancelada')).toMatchObject({ citaId, medicoId, inicio: movida.cuerpo.inicio });
+      // Ningún evento lleva datos de contacto del paciente.
+      expect(JSON.stringify(eventos)).not.toMatch(/Paciente E2E|5512345678/);
+    });
   });
 
   test('sin token → 401 en /api/agenda/citas', async () => {

@@ -4,6 +4,7 @@ import {
   CitaCreada,
   CitaEstadoCambiado,
   CitaReprogramada,
+  type EventDefinition,
   bloqueHorarioSchema,
   cambiarEstadoSchema,
   citaSchema,
@@ -27,6 +28,11 @@ describe('tipos de cita', () => {
     expect(crearTipoCitaSchema.safeParse({ nombre: 'Consulta', duracionMin: 481 }).success).toBe(false);
     expect(crearTipoCitaSchema.safeParse({ nombre: '', duracionMin: 30 }).success).toBe(false);
     expect(crearTipoCitaSchema.safeParse({ nombre: 'x'.repeat(81), duracionMin: 30 }).success).toBe(false);
+  });
+  test('el nombre se recorta: solo espacios no cuenta como nombre', () => {
+    expect(crearTipoCitaSchema.safeParse({ nombre: '   ', duracionMin: 30 }).success).toBe(false);
+    expect(editarTipoCitaSchema.safeParse({ nombre: ' \t ' }).success).toBe(false);
+    expect(crearTipoCitaSchema.parse({ nombre: '  Consulta  ', duracionMin: 30 }).nombre).toBe('Consulta');
   });
   test('editar acepta parciales y rechaza duración inválida', () => {
     expect(editarTipoCitaSchema.safeParse({ activo: false }).success).toBe(true);
@@ -95,14 +101,50 @@ describe('citas', () => {
   });
 });
 
-describe('eventos de cita', () => {
+describe('eventos de cita (spec §3.5)', () => {
   const meta = { tenantId: U, actorId: U, traceId: 't' };
-  test('son v1 y rechazan datos que no son del contrato', () => {
-    const ev = CitaCancelada.create({ ...meta, data: { citaId: U, medicoId: U, inicio: '2030-01-07T17:00:00.000Z', fin: '2030-01-07T17:30:00.000Z' } });
+  const I = '2030-01-07T17:00:00.000Z';
+  const F = '2030-01-07T17:30:00.000Z';
+  /** Crea el sobre, lo serializa como viaja por el outbox y lo vuelve a validar. */
+  const viaje = <T,>(def: EventDefinition<T>, data: T) => def.parse(JSON.parse(JSON.stringify(def.create({ ...meta, data }))));
+  const conDatos = <T,>(def: EventDefinition<T>, valido: T, data: unknown) => () => def.parse({ ...def.create({ ...meta, data: valido }), data });
+
+  test('son v1 y llevan su tipo', () => {
+    const ev = CitaCancelada.create({ ...meta, data: { citaId: U, medicoId: U, inicio: I, fin: F } });
     expect(ev.type).toBe('cita.cancelada');
     expect(ev.version).toBe(1);
-    expect(CitaEstadoCambiado.parse(CitaEstadoCambiado.create({ ...meta, data: { citaId: U, medicoId: U, estadoAnterior: 'agendada', estado: 'confirmada' } })).data.estado).toBe('confirmada');
     expect(CitaCreada.type).toBe('cita.creada');
     expect(CitaReprogramada.type).toBe('cita.reprogramada');
+    expect(CitaEstadoCambiado.type).toBe('cita.estado_cambiado');
+  });
+
+  test('cita.creada incluye estado y origen', () => {
+    const data = { citaId: U, medicoId: U, tipoCitaId: U, inicio: I, fin: F, estado: 'agendada', origen: 'recepcion', fueraDeHorario: false } as const;
+    expect(viaje(CitaCreada, data).data).toEqual(data);
+    for (const falta of ['estado', 'origen'] as const) {
+      const incompleto: Record<string, unknown> = { ...data };
+      delete incompleto[falta];
+      expect(conDatos(CitaCreada, data, incompleto)).toThrow();
+    }
+    expect(conDatos(CitaCreada, data, { ...data, origen: 'web' })).toThrow();
+  });
+
+  test('cita.reprogramada usa anterior: { medicoId, inicio, fin }', () => {
+    const data = { citaId: U, medicoId: U, inicio: I, fin: F, anterior: { medicoId: U, inicio: '2030-01-07T16:00:00.000Z', fin: '2030-01-07T16:30:00.000Z' } };
+    expect(viaje(CitaReprogramada, data).data).toEqual(data);
+    expect(conDatos(CitaReprogramada, data, { citaId: U, medicoId: U, inicio: I, fin: F, medicoAnteriorId: U, inicioAnterior: I, finAnterior: F })).toThrow();
+  });
+
+  test('cita.estado_cambiado es { citaId, de, a } con los estados del contrato', () => {
+    const data = { citaId: U, medicoId: U, de: 'agendada', a: 'confirmada' } as const;
+    expect(viaje(CitaEstadoCambiado, data).data).toEqual(data);
+    expect(conDatos(CitaEstadoCambiado, data, { ...data, a: 'otra' })).toThrow();
+    expect(conDatos(CitaEstadoCambiado, data, { citaId: U, medicoId: U, estadoAnterior: 'agendada', estado: 'confirmada' })).toThrow();
+  });
+
+  test('los instantes exigen desfase y los ids son UUID', () => {
+    const data = { citaId: U, medicoId: U, inicio: I, fin: F };
+    expect(conDatos(CitaCancelada, data, { ...data, inicio: '2030-01-07T17:00:00' })).toThrow();
+    expect(conDatos(CitaCancelada, data, { ...data, citaId: 'x' })).toThrow();
   });
 });

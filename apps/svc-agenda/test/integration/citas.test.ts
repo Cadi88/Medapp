@@ -79,7 +79,7 @@ describe('POST /citas', () => {
     expect(r.body['contacto']).toEqual(CONTACTO);
     const ev = await ultimoEvento('cita.creada', idDe(r));
     expect(ev).toBeDefined();
-    expect(ev!.data).toMatchObject({ citaId: idDe(r), medicoId: dr, inicio: hueco(0), fin: hueco(30) });
+    expect(ev!.data).toEqual({ citaId: idDe(r), medicoId: dr, tipoCitaId: tipo, inicio: hueco(0), fin: hueco(30), estado: 'agendada', origen: 'recepcion', fueraDeHorario: false });
     expect(JSON.stringify(ev)).not.toMatch(/telefono|contacto|5555|Paciente|example\.com/);
     const fila = await withTenant(ag.appPool, T, (tx) => tx.query<{ origen: string }>('SELECT origen FROM cita WHERE id = $1', [idDe(r)]));
     expect(fila.rows[0]!.origen).toBe('recepcion');
@@ -155,7 +155,7 @@ describe('PATCH /citas/:id (reprogramar)', () => {
     expect(r.status).toBe(200);
     expect(r.body).toMatchObject({ estado: 'agendada', version: 3, inicio: hueco(210), fin: hueco(240) });
     const ev = await ultimoEvento('cita.reprogramada', id);
-    expect(ev!.data).toMatchObject({ inicioAnterior: hueco(200), finAnterior: hueco(230), inicio: hueco(210), medicoAnteriorId: dr, medicoId: dr });
+    expect(ev!.data).toEqual({ citaId: id, medicoId: dr, inicio: hueco(210), fin: hueco(240), anterior: { medicoId: dr, inicio: hueco(200), fin: hueco(230) } });
     expect(JSON.stringify(ev)).not.toMatch(/telefono|contacto|5555|Paciente/);
   });
 
@@ -217,7 +217,7 @@ describe('PATCH /citas/:id (reprogramar)', () => {
     const bien = await mover(id, 1, { inicio: hueco(540), medicoId: otroDr, tipoCitaId: tipoOtro });
     expect(bien.status).toBe(200);
     expect(bien.body).toMatchObject({ medicoId: otroDr, tipoCitaId: tipoOtro });
-    expect((await ultimoEvento('cita.reprogramada', id))!.data).toMatchObject({ medicoAnteriorId: dr, medicoId: otroDr });
+    expect((await ultimoEvento('cita.reprogramada', id))!.data).toMatchObject({ medicoId: otroDr, anterior: { medicoId: dr } });
   });
 });
 
@@ -226,7 +226,7 @@ describe('POST /citas/:id/estado', () => {
     const id = idDe(await crear(600));
     const conf = await estado(id, 1, 'confirmada');
     expect(conf.body).toMatchObject({ estado: 'confirmada', version: 2 });
-    expect((await ultimoEvento('cita.estado_cambiado', id))!.data).toMatchObject({ estadoAnterior: 'agendada', estado: 'confirmada' });
+    expect((await ultimoEvento('cita.estado_cambiado', id))!.data).toEqual({ citaId: id, medicoId: dr, de: 'agendada', a: 'confirmada' });
     const can = await estado(id, 2, 'cancelada');
     expect(can.body).toMatchObject({ estado: 'cancelada', version: 3 });
     const ev = await ultimoEvento('cita.cancelada', id);
@@ -311,5 +311,65 @@ describe('GET /citas/:id', () => {
     const id = idDe(await crear(760));
     const r = await llamar('GET', `/citas/${id}`, await ag.tokenPara({ tid: SIN_CONSULTORIO, rol: 'recepcion' }));
     expect(r.status).toBe(404);
+  });
+});
+
+describe('médico inactivo (spec §3.2: sus citas existentes se conservan)', () => {
+  const drInactivo = uuidv7();
+  const tipoInactivoDr = uuidv7();
+  const RANGO = 'desde=2030-01-07T00:00:00Z&hasta=2030-01-09T00:00:00Z';
+  const admin = () => ag.tokenPara({ tid: T, rol: 'medico', admin: true });
+  let aVer: string;
+  let aCancelar: string;
+  let aReasignar: string;
+
+  beforeAll(async () => {
+    await ag.sembrarMedico(T, drInactivo, 'Dra. Inactiva');
+    await withTenant(ag.appPool, T, async (tx) => {
+      await tx.query('INSERT INTO tipo_cita (id, tenant_id, medico_id, nombre, duracion_min) VALUES ($1, $2, $3, $4, 30)', [tipoInactivoDr, T, drInactivo, 'Consulta I']);
+      await tx.query("INSERT INTO horario (id, tenant_id, medico_id, dia_semana, hora_inicio, hora_fin) VALUES ($1, $2, $3, 1, '09:00', '23:00')", [uuidv7(), T, drInactivo]);
+    });
+    const deInactivo = { medicoId: drInactivo, tipoCitaId: tipoInactivoDr };
+    const creadas = await Promise.all([crear(600, deInactivo), crear(650, deInactivo), crear(700, deInactivo)]);
+    expect(creadas.map((r) => r.status)).toEqual([201, 201, 201]);
+    [aVer, aCancelar, aReasignar] = creadas.map(idDe) as [string, string, string];
+    // Identidad le quitó el rol de médico: agenda lo marca inactivo (miembro.actualizado).
+    await withTenant(ag.appPool, T, (tx) => tx.query('UPDATE medico SET activo = false WHERE tenant_id = $1 AND usuario_id = $2', [T, drInactivo]));
+  });
+
+  test('recepción y admin siguen viendo sus citas (detalle y listado por médico)', async () => {
+    for (const token of [await recepcion(), await admin()]) {
+      expect((await llamar('GET', `/citas/${aVer}`, token)).status).toBe(200);
+      const r = await app.inject({ method: 'GET', url: `/citas?${RANGO}&medicoId=${drInactivo}`, headers: { authorization: `Bearer ${token}` } });
+      expect(r.statusCode).toBe(200);
+      expect((JSON.parse(r.body) as { citas: { id: string }[] }).citas.map((c) => c.id)).toEqual(expect.arrayContaining([aVer, aCancelar, aReasignar]));
+    }
+  });
+
+  test('recepción cancela su cita futura', async () => {
+    const r = await estado(aCancelar, 1, 'cancelada');
+    expect(r.status).toBe(200);
+    expect(r.body).toMatchObject({ estado: 'cancelada', version: 2 });
+  });
+
+  test('admin reasigna su cita a un médico activo', async () => {
+    const r = await mover(aReasignar, 1, { inicio: hueco(700), medicoId: otroDr, tipoCitaId: tipoOtro }, await admin());
+    expect(r.status).toBe(200);
+    expect(r.body).toMatchObject({ medicoId: otroDr, tipoCitaId: tipoOtro, version: 2 });
+    expect((await ultimoEvento('cita.reprogramada', aReasignar))!.data).toMatchObject({ medicoId: otroDr, anterior: { medicoId: drInactivo } });
+  });
+
+  test('no se le pueden crear citas nuevas ni moverle citas: 404', async () => {
+    const nueva = await crear(750, { medicoId: drInactivo, tipoCitaId: tipoInactivoDr });
+    expect(nueva.status).toBe(404);
+    expect(nueva.body['code']).toBe('NO_ENCONTRADO');
+    // Como destino de una reprogramación, también dentro de su propia agenda.
+    expect((await mover(aVer, 1, { inicio: hueco(780) })).status).toBe(404);
+    const deOtro = idDe(await crear(790, { medicoId: otroDr, tipoCitaId: tipoOtro }));
+    expect((await mover(deOtro, 1, { inicio: hueco(790), medicoId: drInactivo, tipoCitaId: tipoInactivoDr })).status).toBe(404);
+  });
+
+  test('un médico sin admin sigue sin poder tocar la cita de otro aunque esté inactivo → 403', async () => {
+    expect((await llamar('GET', `/citas/${aVer}`, await medicoToken(otroDr))).status).toBe(403);
   });
 });

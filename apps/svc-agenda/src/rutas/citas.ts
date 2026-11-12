@@ -62,11 +62,11 @@ async function validarHueco(
   return { inicio, fin, fueraDeHorario: !dentro };
 }
 
-/** Carga la cita y autoriza sobre su médico; 404 si no existe en el tenant. */
+/** Carga la cita y autoriza sobre su médico (aunque esté inactivo: sus citas se conservan); 404 si no existe en el tenant. */
 async function cargarCita(req: FastifyRequest, tx: pg.PoolClient, id: string): Promise<Cita> {
   const cita = await leerCita(tx, req.ctx.tenantId, id);
   if (!cita) throw new AppError('NO_ENCONTRADO', 'Cita no encontrada', 404);
-  await exigirGestion(req, tx, cita.medicoId);
+  await exigirGestion(req, tx, cita.medicoId, { permitirInactivo: true });
   return cita;
 }
 
@@ -95,7 +95,16 @@ export const citasRutas: FastifyPluginAsync<CitasOpciones> = async (app, { pool,
             tenantId,
             actorId: usuarioId,
             traceId,
-            data: { citaId: cita.id, medicoId: cita.medicoId, tipoCitaId: cita.tipoCitaId, inicio: cita.inicio, fin: cita.fin, fueraDeHorario: cita.fueraDeHorario },
+            data: {
+              citaId: cita.id,
+              medicoId: cita.medicoId,
+              tipoCitaId: cita.tipoCitaId,
+              inicio: cita.inicio,
+              fin: cita.fin,
+              estado: cita.estado,
+              origen: 'recepcion',
+              fueraDeHorario: cita.fueraDeHorario,
+            },
           }),
         );
         return cita;
@@ -113,7 +122,8 @@ export const citasRutas: FastifyPluginAsync<CitasOpciones> = async (app, { pool,
     return withTenant(pool, tenantId, async (tx) => {
       const actual = await cargarCita(req, tx, id);
       const medicoId = input.medicoId ?? actual.medicoId;
-      if (medicoId !== actual.medicoId) await exigirGestion(req, tx, medicoId);
+      // El destino debe estar activo (también si es el mismo médico): mover la cita equivale a ocupar un hueco nuevo.
+      await exigirGestion(req, tx, medicoId);
       if (actual.version !== input.version) throw conflictoVersion();
       if (!puedeReprogramar(actual.estado)) throw new AppError('CONFLICTO', `No se puede reprogramar una cita ${actual.estado}`, 409);
       const tipoCitaId = input.tipoCitaId ?? actual.tipoCitaId;
@@ -131,13 +141,9 @@ export const citasRutas: FastifyPluginAsync<CitasOpciones> = async (app, { pool,
             data: {
               citaId: cita.id,
               medicoId: cita.medicoId,
-              medicoAnteriorId: actual.medicoId,
-              tipoCitaId: cita.tipoCitaId,
               inicio: cita.inicio,
               fin: cita.fin,
-              inicioAnterior: actual.inicio,
-              finAnterior: actual.fin,
-              fueraDeHorario: cita.fueraDeHorario,
+              anterior: { medicoId: actual.medicoId, inicio: actual.inicio, fin: actual.fin },
             },
           }),
         );
@@ -165,7 +171,7 @@ export const citasRutas: FastifyPluginAsync<CitasOpciones> = async (app, { pool,
         tx,
         input.estado === 'cancelada'
           ? CitaCancelada.create({ ...base, data: { citaId: cita.id, medicoId: cita.medicoId, inicio: cita.inicio, fin: cita.fin } })
-          : CitaEstadoCambiado.create({ ...base, data: { citaId: cita.id, medicoId: cita.medicoId, estadoAnterior: actual.estado, estado: cita.estado } }),
+          : CitaEstadoCambiado.create({ ...base, data: { citaId: cita.id, medicoId: cita.medicoId, de: actual.estado, a: cita.estado } }),
       );
       return cita;
     });
@@ -177,7 +183,8 @@ export const citasRutas: FastifyPluginAsync<CitasOpciones> = async (app, { pool,
     if (dur <= 0 || dur > MAX_RANGO_MS) throw new AppError('VALIDACION', 'El rango debe ser positivo y de máximo 31 días', 400);
     const { tenantId, usuarioId, rol, admin } = req.ctx;
     return withTenant(pool, tenantId, async (tx) => {
-      if (medicoId) await exigirGestion(req, tx, medicoId);
+      // Las citas de un médico ya inactivo se siguen consultando.
+      if (medicoId) await exigirGestion(req, tx, medicoId, { permitirInactivo: true });
       // Un médico sin privilegios de admin solo ve su propia agenda aunque no filtre.
       const filtro = medicoId ?? (rol === 'medico' && !admin ? usuarioId : undefined);
       return { citas: await listarCitas(tx, tenantId, desde, hasta, filtro) };

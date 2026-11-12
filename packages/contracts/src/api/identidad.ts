@@ -37,3 +37,12 @@ export const editarMiembroSchema = z
   .strictObject({ rol: rolSchema.optional(), admin: z.boolean().optional() })
   .refine((v) => v.rol !== undefined || v.admin !== undefined, { message: 'Se requiere rol o admin' });
 export type EditarMiembro = z.infer<typeof editarMiembroSchema>;
+
+/** Respuesta de POST /miembros. `cuentaCreada: false`: la persona ya tenía cuenta y la contraseña temporal no se aplicó. */
+export const altaMiembroRespuestaSchema = z.object({
+  usuarioId: z.uuid(),
+  rol: rolSchema,
+  admin: z.boolean(),
+  cuentaCreada: z.boolean(),
+});
+export type AltaMiembroRespuesta = z.infer<typeof altaMiembroRespuestaSchema>;

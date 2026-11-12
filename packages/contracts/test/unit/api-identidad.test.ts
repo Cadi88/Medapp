@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import { consultorioSchema, editarMiembroSchema, miembroSchema, miembrosRespuestaSchema } from '../../src/index.js';
+import { altaMiembroRespuestaSchema, consultorioSchema, editarMiembroSchema, miembroSchema, miembrosRespuestaSchema } from '../../src/index.js';
 
 const U = '0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5c';
 const base = {
@@ -41,5 +41,14 @@ describe('editarMiembroSchema', () => {
   });
   test.each([{}, { rol: 'admin' }, { admin: 'si' }, { rol: 'medico', extra: 1 }])('rechaza %j', (b) => {
     expect(editarMiembroSchema.safeParse(b).success).toBe(false);
+  });
+});
+
+describe('altaMiembroRespuestaSchema (POST /miembros)', () => {
+  test('incluye cuentaCreada: si es false, la contraseña temporal no se aplicó', () => {
+    const r = { usuarioId: U, rol: 'recepcion', admin: false, cuentaCreada: false };
+    expect(altaMiembroRespuestaSchema.parse(r)).toEqual(r);
+    expect(altaMiembroRespuestaSchema.safeParse({ usuarioId: U, rol: 'recepcion', admin: false }).success).toBe(false);
+    expect(altaMiembroRespuestaSchema.safeParse({ ...r, rol: 'admin' }).success).toBe(false);
   });
 });

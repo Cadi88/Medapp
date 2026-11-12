@@ -38,8 +38,9 @@ export async function listarMedicosActivos(tx: pg.PoolClient, tenantId: string, 
   return r.rows.map((f) => ({ usuarioId: f.usuario_id, nombre: f.nombre }));
 }
 
-export async function existeMedicoActivo(tx: pg.PoolClient, tenantId: string, usuarioId: string): Promise<boolean> {
-  const r = await tx.query('SELECT 1 FROM medico WHERE tenant_id = $1 AND usuario_id = $2 AND activo', [tenantId, usuarioId]);
+/** El médico existe en el tenant (nunca se borra); con `soloActivos`, además debe estar activo. */
+export async function existeMedico(tx: pg.PoolClient, tenantId: string, usuarioId: string, soloActivos: boolean): Promise<boolean> {
+  const r = await tx.query('SELECT 1 FROM medico WHERE tenant_id = $1 AND usuario_id = $2 AND (activo OR NOT $3::boolean)', [tenantId, usuarioId, soloActivos]);
   return r.rowCount === 1;
 }
 
