@@ -154,8 +154,20 @@ describe('AgendaCliente (escritorio)', () => {
     await userEvent.keyboard('{Escape}');
     await waitFor(() => expect(screen.queryByRole('button', { name: 'Confirmar' })).not.toBeInTheDocument());
 
-    act(() => (fc.props.dateClick as (a: unknown) => void)({ dateStr: '2026-11-12T10:00:00-06:00' }));
+    act(() => (fc.props.dateClick as (a: unknown) => void)({ dateStr: '2026-11-12T19:30:00-06:00' }));
     expect(await screen.findByLabelText('Fecha')).toHaveValue('2026-11-12');
+    expect(screen.getByLabelText('Otra hora')).toHaveValue('19:30');
+  });
+});
+
+describe('AgendaCliente (límites del calendario)', () => {
+  test('una cita a las 21:30 hace visible esa franja (slotMaxTime ≥ 22:00); sin citas, 07:00–21:00', async () => {
+    acciones.cargarCitas.mockResolvedValue({ ok: true, citas: [{ ...cita, inicio: '2026-11-13T03:30:00.000Z', fin: '2026-11-13T04:00:00.000Z' }] });
+    render(<AgendaCliente medicos={medicos} tipos={tipos} zona={ZONA} puedeFiltrar />);
+    expect(fc.props.slotMaxTime).toBe('21:00:00');
+    await verRango();
+    await waitFor(() => expect(fc.props.slotMaxTime).toBe('22:00:00'));
+    expect(fc.props.slotMinTime).toBe('07:00:00');
   });
 });
 

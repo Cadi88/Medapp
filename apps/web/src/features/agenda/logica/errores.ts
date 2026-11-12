@@ -12,10 +12,18 @@ const MENSAJES: Record<string, string> = {
   NO_ENCONTRADO: 'La cita ya no existe',
 };
 
+/** Qué se estaba pidiendo: un mismo código puede significar cosas distintas (un 404 de disponibilidad no es de una cita). */
+export type ContextoError = 'cita' | 'disponibilidad';
+
+const POR_CONTEXTO: Record<ContextoError, Record<string, string>> = {
+  cita: {},
+  disponibilidad: { NO_ENCONTRADO: 'Ese tipo de cita o médico ya no está disponible' },
+};
+
 export const MENSAJE_GENERICO = GENERICO;
 
-export function mensajeDeError(code: string): string {
-  return MENSAJES[code] ?? GENERICO;
+export function mensajeDeError(code: string, contexto: ContextoError = 'cita'): string {
+  return POR_CONTEXTO[contexto][code] ?? MENSAJES[code] ?? GENERICO;
 }
 
 /** Errores tras los que la pantalla debe volver a leer los datos (huecos o citas desactualizados). */

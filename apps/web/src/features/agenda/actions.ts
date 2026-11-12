@@ -7,7 +7,7 @@ import type { Resultado } from '@/lib/api/resultado';
 import { destinoPorError } from '@/lib/sesion/desvios';
 import { erroresDeZod } from '@/features/sesion/logica/validaciones';
 import { cambiarEstadoEnApi, crearCitaEnApi, listarCitas, obtenerDisponibilidad, reprogramarCitaEnApi } from './api';
-import { mensajeDeError, pideRecargar } from './logica/errores';
+import { mensajeDeError, pideRecargar, type ContextoError } from './logica/errores';
 import { altaCitaSchema, consultaCitasSchema, consultaHuecosSchema, idCitaSchema, type AltaCita } from './logica/validaciones';
 import type { LecturaCitas, LecturaHuecos, ResultadoAccion } from './tipos';
 
@@ -16,10 +16,10 @@ type Fallo = Extract<Resultado<unknown>, { ok: false }>;
 const DATOS_INVALIDOS = mensajeDeError('VALIDACION');
 
 /** Sesión vencida, contraseña temporal, sin permiso… van a su pantalla; el resto se traduce a texto para la interfaz. */
-function desviarOMensaje(r: Fallo): string {
+function desviarOMensaje(r: Fallo, contexto?: ContextoError): string {
   const destino = destinoPorError(r.error, r.status);
   if (destino) redirect(destino);
-  return mensajeDeError(r.error.code);
+  return mensajeDeError(r.error.code, contexto);
 }
 
 function aResultado(r: Fallo): ResultadoAccion {
@@ -86,5 +86,5 @@ export async function cargarHuecos(medicoId: string, fecha: string, tipoCitaId: 
   const v = consultaHuecosSchema.safeParse({ medicoId, fecha, tipoCitaId });
   if (!v.success) return { ok: false, mensaje: DATOS_INVALIDOS };
   const r = await obtenerDisponibilidad(v.data.medicoId, v.data.fecha, v.data.tipoCitaId);
-  return r.ok ? { ok: true, huecos: r.datos } : { ok: false, mensaje: desviarOMensaje(r) };
+  return r.ok ? { ok: true, huecos: r.datos } : { ok: false, mensaje: desviarOMensaje(r, 'disponibilidad') };
 }

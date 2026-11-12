@@ -24,6 +24,13 @@ export function rangoDelDia(fecha: string, zona: string): { desde: string; hasta
   return { desde: inicio.toUTC().toISO() ?? '', hasta: inicio.plus({ days: 1 }).startOf('day').toUTC().toISO() ?? '' };
 }
 
+/** Fecha `YYYY-MM-DD` y hora `HH:mm` locales del consultorio como instante UTC (`...Z`); `''` si alguna no es válida. */
+export function instanteLocal(fecha: string, hora: string, zona: string): string {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(fecha) || !/^\d{2}:\d{2}$/.test(hora)) return '';
+  const dt = DateTime.fromISO(`${fecha}T${hora}`, { zone: zona });
+  return dt.isValid ? (dt.toUTC().toISO() ?? '') : '';
+}
+
 /** Suma `dias` (puede ser negativo) a un día `YYYY-MM-DD`. */
 export function sumarDias(fecha: string, dias: number): string {
   return DateTime.fromISO(fecha, { zone: 'utc' }).plus({ days: dias }).toISODate() ?? fecha;

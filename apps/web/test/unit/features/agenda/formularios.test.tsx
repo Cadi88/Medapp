@@ -135,6 +135,49 @@ describe('FormularioCita (alta)', () => {
     expect(acciones.crearCita).toHaveBeenLastCalledWith(expect.objectContaining({ fueraDeHorario: true, inicio: H1 }));
   });
 
+  test('"Otra hora" fuera de los huecos: envía el inicio exacto, 422 → "Agendar de todos modos" reenvía con fueraDeHorario', async () => {
+    acciones.crearCita.mockResolvedValueOnce({ ok: false, motivo: 'FUERA_DE_HORARIO' }).mockResolvedValueOnce({ ok: true });
+    const onListo = vi.fn();
+    render(<FormularioCita {...props} onListo={onListo} />);
+    await elegirTipo();
+    await screen.findByRole('radio', { name: '10:00' });
+    await userEvent.type(screen.getByLabelText('Otra hora'), '21:30');
+    await userEvent.type(screen.getByLabelText('Nombre del paciente'), 'Ana Pérez');
+    await userEvent.type(screen.getByLabelText('Teléfono'), '5551234567');
+    await userEvent.click(screen.getByRole('button', { name: 'Agendar' }));
+
+    // 21:30 en Ciudad de México = 03:30Z del día siguiente
+    const exacto = '2026-11-13T03:30:00.000Z';
+    await waitFor(() => expect(acciones.crearCita).toHaveBeenCalledWith(expect.objectContaining({ inicio: exacto, fueraDeHorario: false })));
+    await userEvent.click(await screen.findByRole('button', { name: 'Agendar de todos modos' }));
+    await waitFor(() => expect(onListo).toHaveBeenCalled());
+    expect(acciones.crearCita).toHaveBeenLastCalledWith(expect.objectContaining({ inicio: exacto, fueraDeHorario: true }));
+  });
+
+  test('elegir un hueco sugerido limpia "Otra hora" y escribir otra hora quita el hueco elegido', async () => {
+    render(<FormularioCita {...props} />);
+    await elegirTipo();
+    await userEvent.type(screen.getByLabelText('Otra hora'), '18:00');
+    await userEvent.click(await screen.findByRole('radio', { name: '10:30' }));
+    expect(screen.getByLabelText('Otra hora')).toHaveValue('');
+    expect(screen.getByRole('radio', { name: '10:30' })).toBeChecked();
+    await userEvent.type(screen.getByLabelText('Otra hora'), '18:00');
+    expect(screen.getByRole('radio', { name: '10:30' })).not.toBeChecked();
+  });
+
+  test('con inicioInicial (clic en el calendario) precarga la fecha y la hora exactas (manda sobre fechaInicial)', async () => {
+    acciones.crearCita.mockResolvedValue({ ok: true });
+    // 22:30Z = 16:30 en Ciudad de México
+    render(<FormularioCita {...props} fechaInicial="2026-11-20" inicioInicial="2026-11-12T22:30:00.000Z" />);
+    expect(screen.getByLabelText('Fecha')).toHaveValue('2026-11-12');
+    expect(screen.getByLabelText('Otra hora')).toHaveValue('16:30');
+    await elegirTipo();
+    await userEvent.type(screen.getByLabelText('Nombre del paciente'), 'Ana Pérez');
+    await userEvent.type(screen.getByLabelText('Teléfono'), '5551234567');
+    await userEvent.click(screen.getByRole('button', { name: 'Agendar' }));
+    await waitFor(() => expect(acciones.crearCita).toHaveBeenCalledWith(expect.objectContaining({ inicio: '2026-11-12T22:30:00.000Z' })));
+  });
+
   test('errores de validación aparecen junto a su campo', async () => {
     acciones.crearCita.mockResolvedValue({ errores: { telefono: 'Escribe un teléfono válido' } });
     render(<FormularioCita {...props} />);

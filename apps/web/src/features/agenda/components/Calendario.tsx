@@ -9,11 +9,14 @@ import luxon3Plugin from '@fullcalendar/luxon3';
 import FullCalendar from '@fullcalendar/react';
 import timeGridPlugin from '@fullcalendar/timegrid';
 import { aInstanteUtc } from '../logica/formato';
+import type { LimitesCalendario } from '../logica/limites-calendario';
 
 interface Props {
   eventos: EventInput[];
   /** Zona IANA del consultorio: todo se dibuja en esa zona, no en la del navegador. */
   zona: string;
+  /** Franja de horas dibujada; se amplía para que ninguna cita visible quede fuera (`limitesDelCalendario`). */
+  limites: LimitesCalendario;
   /** Rango visible como instantes UTC (`desde` incluido, `hasta` excluido). */
   onRango: (desde: string, hasta: string) => void;
   onSeleccionar: (citaId: string) => void;
@@ -27,7 +30,7 @@ const PLUGINS = [dayGridPlugin, timeGridPlugin, interactionPlugin, listPlugin, l
 const BARRA = { left: 'prev,next today', center: 'title', right: 'timeGridDay,timeGridWeek' };
 
 /** Envoltura de FullCalendar: el resto de la agenda no depende de la biblioteca. */
-export function Calendario({ eventos, zona, onRango, onSeleccionar, onHueco, onReprogramar }: Props) {
+export function Calendario({ eventos, zona, limites, onRango, onSeleccionar, onHueco, onReprogramar }: Props) {
   async function alSoltar(info: EventDropArg) {
     let ok = false;
     try {
@@ -51,8 +54,8 @@ export function Calendario({ eventos, zona, onRango, onSeleccionar, onHueco, onR
       eventDurationEditable={false}
       allDaySlot={false}
       nowIndicator
-      slotMinTime="07:00:00"
-      slotMaxTime="21:00:00"
+      slotMinTime={limites.slotMinTime}
+      slotMaxTime={limites.slotMaxTime}
       scrollTime="08:00:00"
       slotDuration="00:30:00"
       expandRows

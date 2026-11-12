@@ -9,6 +9,7 @@ import { cargarCitas, reprogramarCita } from '../actions';
 import { mensajeDeError, MENSAJE_GENERICO } from '../logica/errores';
 import { citasAEventos } from '../logica/eventos-calendario';
 import { fechaLocal, rangoDelDia } from '../logica/formato';
+import { limitesDelCalendario } from '../logica/limites-calendario';
 import { esFueraDeHorario } from '../tipos';
 import { Calendario } from './Calendario';
 import { DetalleCita } from './DetalleCita';
@@ -31,7 +32,8 @@ interface Rango {
   hasta: string;
 }
 
-type Formulario = { cita?: Cita; fecha?: string } | null;
+/** `inicio`: instante del hueco vacío que se tocó en el calendario (precarga fecha y hora). */
+type Formulario = { cita?: Cita; fecha?: string; inicio?: string } | null;
 
 const CONFIRMAR_FUERA_DE_HORARIO = 'El nuevo horario queda fuera de la jornada del médico. ¿Reprogramar de todos modos?';
 
@@ -65,6 +67,7 @@ export function AgendaCliente({ medicos, tipos, zona, puedeFiltrar }: Props) {
   }, [desde, hasta, medicoId, recarga]);
 
   const eventos = useMemo(() => citasAEventos(citas, medicos, zona, tipos), [citas, medicos, zona, tipos]);
+  const limites = useMemo(() => limitesDelCalendario(citas, zona), [citas, zona]);
   const detalle = citas.find((c) => c.id === detalleId);
   // La cita abierta en el formulario se toma de la lista recargada: tras un conflicto de versión el reintento usa la versión vigente.
   const citaDelFormulario = formulario?.cita ? (citas.find((c) => c.id === formulario.cita?.id) ?? formulario.cita) : undefined;
@@ -131,9 +134,10 @@ export function AgendaCliente({ medicos, tipos, zona, puedeFiltrar }: Props) {
         <Calendario
           eventos={eventos}
           zona={zona}
+          limites={limites}
           onRango={alCambiarRango}
           onSeleccionar={setDetalleId}
-          onHueco={(inicio) => abrirAlta(fechaLocal(inicio, zona))}
+          onHueco={(inicio) => setFormulario({ inicio })}
           onReprogramar={reprogramarArrastrada}
         />
       )}
@@ -177,6 +181,7 @@ export function AgendaCliente({ medicos, tipos, zona, puedeFiltrar }: Props) {
               {...(citaDelFormulario ? { cita: citaDelFormulario } : {})}
               {...(medicoId ? { medicoIdInicial: medicoId } : {})}
               {...(formulario.fecha ? { fechaInicial: formulario.fecha } : {})}
+              {...(formulario.inicio ? { inicioInicial: formulario.inicio } : {})}
               onListo={() => cerrarFormulario(true)}
               onCancelar={() => cerrarFormulario(false)}
               onConflicto={recargar}

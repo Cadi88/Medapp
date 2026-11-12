@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { AvisoDeError, Campo, MensajeDeCampo } from '@/features/sesion/components/campo';
 import { cargarHuecos, crearCita, reprogramarCita } from '../actions';
-import { fechaLocal, formatearHora } from '../logica/formato';
+import { fechaLocal, formatearHora, instanteLocal } from '../logica/formato';
 import { esFueraDeHorario, type ResultadoCita } from '../tipos';
 import { CampoSelect } from './CampoSelect';
 
@@ -19,6 +19,8 @@ interface Props {
   medicoIdInicial?: string;
   /** `YYYY-MM-DD` en la zona del consultorio. */
   fechaInicial?: string;
+  /** Instante del hueco vacío que se tocó en el calendario: precarga la fecha y la hora exactas ("Otra hora"). */
+  inicioInicial?: string;
   onListo: () => void;
   onCancelar: () => void;
   /** Lo que se ve quedó desactualizado (horario ocupado, versión obsoleta): quien lo muestra debe recargar. */
@@ -27,13 +29,23 @@ interface Props {
 
 const FALTAN_DATOS = 'Elige tipo de cita, fecha y horario';
 
-/** Médico → tipo → fecha → huecos libres → contacto → notas. Reutilizado para reprogramar (sin médico ni contacto). */
-export function FormularioCita({ medicos, tipos, zona, cita, medicoIdInicial, fechaInicial, onListo, onCancelar, onConflicto }: Props) {
+/**
+ * Médico → tipo → fecha → hueco sugerido u "Otra hora" → contacto → notas. Reutilizado para reprogramar (sin médico ni
+ * contacto). "Otra hora" permite elegir un inicio fuera de los huecos sugeridos (p. ej., fuera de la jornada: el API
+ * responde FUERA_DE_HORARIO y se ofrece "Agendar de todos modos").
+ */
+export function FormularioCita({ medicos, tipos, zona, cita, medicoIdInicial, fechaInicial, inicioInicial, onListo, onCancelar, onConflicto }: Props) {
   const [medicoId, setMedicoId] = useState(cita?.medicoId ?? medicoIdInicial ?? (medicos.length === 1 ? (medicos[0]?.usuarioId ?? '') : ''));
   const [tipoCitaId, setTipoCitaId] = useState(cita?.tipoCitaId ?? '');
-  const [fecha, setFecha] = useState(cita ? fechaLocal(cita.inicio, zona) : (fechaInicial ?? fechaLocal(new Date().toISOString(), zona)));
+  const [fecha, setFecha] = useState(() => {
+    if (cita) return fechaLocal(cita.inicio, zona);
+    if (inicioInicial) return fechaLocal(inicioInicial, zona);
+    return fechaInicial ?? fechaLocal(new Date().toISOString(), zona);
+  });
   const [carga, setCarga] = useState<{ clave: string; huecos: string[] } | null>(null);
   const [hueco, setHueco] = useState('');
+  /** `HH:mm` local escrita en "Otra hora"; si hay una, manda sobre el hueco sugerido. */
+  const [horaLibre, setHoraLibre] = useState(() => (inicioInicial && !cita ? formatearHora(inicioInicial, zona) : ''));
   const [recarga, setRecarga] = useState(0);
   const [nombre, setNombre] = useState('');
   const [telefono, setTelefono] = useState('');
@@ -48,6 +60,7 @@ export function FormularioCita({ medicos, tipos, zona, cita, medicoIdInicial, fe
   // Los huecos valen solo para la combinación que se pidió; si cambia algo, `huecos` vuelve a ser null hasta que llegue la respuesta.
   const clave = `${medicoId}|${tipoCitaId}|${fecha}|${recarga}`;
   const huecos = medicoId && tipoCitaId && fecha && carga?.clave === clave ? carga.huecos : null;
+  const inicio = horaLibre ? instanteLocal(fecha, horaLibre, zona) : hueco;
 
   useEffect(() => {
     if (!medicoId || !tipoCitaId || !fecha) return;
@@ -62,7 +75,7 @@ export function FormularioCita({ medicos, tipos, zona, cita, medicoIdInicial, fe
     };
   }, [medicoId, tipoCitaId, fecha, clave]);
 
-  /** Cambiar médico, tipo o fecha invalida el horario elegido y el aviso de "fuera de horario". */
+  /** Cambiar médico, tipo o fecha invalida el hueco sugerido elegido y el aviso de "fuera de horario". */
   function cambiar(accion: () => void) {
     accion();
     setHueco('');
@@ -71,15 +84,15 @@ export function FormularioCita({ medicos, tipos, zona, cita, medicoIdInicial, fe
   }
 
   async function enviar(forzar: boolean) {
-    if (!medicoId || !tipoCitaId || !hueco) {
+    if (!medicoId || !tipoCitaId || !inicio) {
       setEstado({ mensaje: FALTAN_DATOS });
       return;
     }
     setEnviando(true);
     try {
       const r = cita
-        ? await reprogramarCita({ citaId: cita.id, version: cita.version, inicio: hueco, tipoCitaId, fueraDeHorario: forzar })
-        : await crearCita({ medicoId, tipoCitaId, inicio: hueco, nombre, telefono, email, notas, fueraDeHorario: forzar });
+        ? await reprogramarCita({ citaId: cita.id, version: cita.version, inicio, tipoCitaId, fueraDeHorario: forzar })
+        : await crearCita({ medicoId, tipoCitaId, inicio, nombre, telefono, email, notas, fueraDeHorario: forzar });
       if (esFueraDeHorario(r)) {
         setFueraDeHorario(true);
         setEstado({});
@@ -90,6 +103,7 @@ export function FormularioCita({ medicos, tipos, zona, cita, medicoIdInicial, fe
         setEstado(r);
         if (r.recargar) {
           setHueco('');
+          setHoraLibre('');
           setRecarga((n) => n + 1);
           onConflicto?.();
         }
@@ -163,9 +177,10 @@ export function FormularioCita({ medicos, tipos, zona, cita, medicoIdInicial, fe
                   type="radio"
                   name="hueco"
                   value={h}
-                  checked={hueco === h}
+                  checked={!horaLibre && hueco === h}
                   onChange={() => {
                     setHueco(h);
+                    setHoraLibre('');
                     setFueraDeHorario(false);
                   }}
                   className="sr-only"
@@ -176,6 +191,23 @@ export function FormularioCita({ medicos, tipos, zona, cita, medicoIdInicial, fe
           </div>
         )}
       </fieldset>
+      <div className="grid gap-1">
+        <Campo
+          nombre="horaLibre"
+          etiqueta="Otra hora"
+          type="time"
+          step={300}
+          value={horaLibre}
+          aria-describedby="hora-libre-ayuda"
+          onChange={(e) => {
+            setHoraLibre(e.target.value);
+            setFueraDeHorario(false);
+          }}
+        />
+        <p id="hora-libre-ayuda" className="text-xs text-muted-foreground">
+          Para una hora que no aparece arriba (por ejemplo, fuera de la jornada del médico).
+        </p>
+      </div>
 
       {cita ? null : (
         <>

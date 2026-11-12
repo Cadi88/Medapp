@@ -181,6 +181,11 @@ describe('lecturas para el cliente', () => {
     expect(m.llamarGateway.mock.calls[0]?.[0]).toBe(`/api/agenda/medicos/${MEDICO}/disponibilidad?fecha=2026-11-12&tipoCitaId=${TIPO}`);
   });
 
+  test('cargarHuecos con 404: el tipo de cita o el médico ya no está disponible (no "la cita ya no existe")', async () => {
+    m.llamarGateway.mockResolvedValueOnce(fallo(404, error('NO_ENCONTRADO')));
+    expect(await acciones.cargarHuecos(MEDICO, '2026-11-12', TIPO)).toEqual({ ok: false, mensaje: 'Ese tipo de cita o médico ya no está disponible' });
+  });
+
   test('cargarHuecos con parámetros inválidos no llama', async () => {
     const r = await acciones.cargarHuecos('x', 'mañana', 'y');
     expect(r.ok).toBe(false);

@@ -23,6 +23,7 @@ const eventos: EventInput[] = [{ id: 'c1', title: 'Ana', start: '2026-11-12T16:0
 const base = {
   eventos,
   zona: ZONA,
+  limites: { slotMinTime: '06:00:00', slotMaxTime: '23:00:00' },
   onRango: vi.fn(),
   onSeleccionar: vi.fn(),
   onHueco: vi.fn(),
@@ -46,6 +47,8 @@ describe('Calendario', () => {
     expect(prop('events')).toBe(eventos);
     expect(prop('editable')).toBe(true);
     expect(prop('eventDurationEditable')).toBe(false);
+    expect(prop('slotMinTime')).toBe('06:00:00');
+    expect(prop('slotMaxTime')).toBe('23:00:00');
     expect(prop<unknown[]>('plugins')).toHaveLength(4 + 1); // daygrid, timegrid, interaction, list + luxon3
   });
 
