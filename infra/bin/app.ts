@@ -7,15 +7,17 @@
  *   RDS PostgreSQL db.t4g.medium, 1 AZ, 50 GB gp3 + 35 días de respaldos ..... ~ 75
  *   NAT Gateway (1) + datos procesados ....................................... ~ 35
  *   Application Load Balancer ................................................ ~ 20
- *   Fargate: gateway 0.25 vCPU/0.5 GB, auditoría 0.25/0.5, identidad 0.5/1, NATS 0.25/0.5 ... ~ 55
+ *   Fargate: gateway 0.25 vCPU/0.5 GB, auditoría 0.25/0.5, identidad 0.5/1, NATS 0.25/0.5,
+ *            svc-agenda 0.25/0.5 y web 0.5/1 (los dos nuevos suman ~ 27) ................. ~ 82
  *   EFS (JetStream, pocos GB) + CloudWatch Logs + ECR ........................ ~ 10
- *   KMS (1 llave) + Secrets Manager (7 secretos) + S3 ........................ ~ 10
- *   Total orientativo ........................................................ ~ 205 USD/mes
- * Con RDS Multi-AZ y 2 réplicas por servicio el total ronda 350-400 USD/mes.
+ *   KMS (1 llave) + Secrets Manager (9 secretos) + S3 ........................ ~ 12
+ *   Total orientativo ........................................................ ~ 235 USD/mes
+ * agenda_db vive en la misma instancia RDS (no agrega costo de base de datos).
+ * Con RDS Multi-AZ y 2 réplicas por servicio el total ronda 400-450 USD/mes.
  *
  * Contexto opcional (cdk.json o `-c clave=valor`):
  *   certificadoArn  ARN de un certificado ACM de mx-central-1 para el listener HTTPS (sin él: HTTP:80, solo pruebas).
- *   urlPublica      origen público de la API para BETTER_AUTH_URL (por defecto, el DNS del balanceador).
+ *   urlPublica      origen público del sitio y de la API (BETTER_AUTH_URL, ORIGENES_CONFIABLES, WEB_ORIGEN); por defecto, el DNS del balanceador.
  *   imageTag        SHA de la imagen inicial de las tareas (sin él, parámetro ImageTag obligatorio al desplegar).
  */
 import { crearApp } from '../lib/aplicacion.js';

@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { describe, expect, test } from 'vitest';
 import { Match, Template } from 'aws-cdk-lib/assertions';
 import { crearApp } from '../lib/aplicacion.js';
@@ -77,6 +78,7 @@ function tareaDe(texto: string): Json {
   expect(def).toBeDefined();
   return def!;
 }
+const NOMBRES_SERVICIOS = ['gateway', 'svc-identidad', 'svc-auditoria', 'svc-agenda', 'web'];
 const nombres = (lista: unknown): string[] => ((lista as { Name: string }[] | undefined) ?? []).map((e) => e.Name);
 
 describe('región y entorno', () => {
@@ -144,7 +146,11 @@ describe('DatosStack', () => {
     datos.hasResourceProperties('AWS::KMS::Key', { EnableKeyRotation: true });
   });
   test('la base solo acepta tráfico de los SG de los servicios con base de datos', () => {
-    const permitidos = [idDeGrupo(red, 'Grupo de seguridad de svc-identidad'), idDeGrupo(red, 'Grupo de seguridad de svc-auditoria')];
+    const permitidos = [
+      idDeGrupo(red, 'Grupo de seguridad de svc-identidad'),
+      idDeGrupo(red, 'Grupo de seguridad de svc-auditoria'),
+      idDeGrupo(red, 'Grupo de seguridad de svc-agenda'),
+    ];
     const bd = idDeGrupo(datos, 'Grupo de seguridad de la base de datos');
     const reglas = reglasDeEntrada().filter((r) => r.destino === bd);
     expect(reglas.length).toBeGreaterThan(0);
@@ -169,7 +175,11 @@ describe('MensajeriaStack', () => {
   });
   test('el SG de NATS solo admite ingreso desde los SG de los servicios', () => {
     const nats = idDeGrupo(mensajeria, 'Grupo de seguridad de NATS');
-    const permitidos = [idDeGrupo(red, 'Grupo de seguridad de svc-identidad'), idDeGrupo(red, 'Grupo de seguridad de svc-auditoria')];
+    const permitidos = [
+      idDeGrupo(red, 'Grupo de seguridad de svc-identidad'),
+      idDeGrupo(red, 'Grupo de seguridad de svc-auditoria'),
+      idDeGrupo(red, 'Grupo de seguridad de svc-agenda'),
+    ];
     const reglas = reglasDeEntrada().filter((r) => r.destino === nats);
     expect(reglas.length).toBeGreaterThan(0);
     for (const r of reglas) {
@@ -194,8 +204,8 @@ describe('MensajeriaStack', () => {
 });
 
 describe('ServiciosStack', () => {
-  test('solo el gateway es público: 3 servicios ECS y un único balanceador', () => {
-    servicios.resourceCountIs('AWS::ECS::Service', 3);
+  test('solo el balanceador es público: 5 servicios ECS y un único balanceador', () => {
+    servicios.resourceCountIs('AWS::ECS::Service', 5);
     servicios.resourceCountIs('AWS::ElasticLoadBalancingV2::LoadBalancer', 1);
     servicios.hasResourceProperties('AWS::ElasticLoadBalancingV2::LoadBalancer', { Scheme: 'internet-facing' });
     servicios.resourcePropertiesCountIs(
@@ -205,14 +215,14 @@ describe('ServiciosStack', () => {
     );
   });
   test('servicios ECS con los nombres exactos que usa el CI', () => {
-    for (const ServiceName of ['gateway', 'svc-identidad', 'svc-auditoria']) {
+    for (const ServiceName of NOMBRES_SERVICIOS) {
       servicios.hasResourceProperties('AWS::ECS::Service', { ServiceName, LaunchType: 'FARGATE' });
     }
     servicios.hasResourceProperties('AWS::ECS::Cluster', { ClusterName: 'consultorio' });
   });
-  test('tres repositorios ECR con etiquetas inmutables, escaneo al subir y ciclo de vida de 20 imágenes', () => {
-    servicios.resourceCountIs('AWS::ECR::Repository', 3);
-    for (const RepositoryName of ['consultorio/gateway', 'consultorio/svc-identidad', 'consultorio/svc-auditoria']) {
+  test('cinco repositorios ECR con etiquetas inmutables, escaneo al subir y ciclo de vida de 20 imágenes', () => {
+    servicios.resourceCountIs('AWS::ECR::Repository', 5);
+    for (const RepositoryName of NOMBRES_SERVICIOS.map((n) => `consultorio/${n}`)) {
       servicios.hasResourceProperties('AWS::ECR::Repository', {
         RepositoryName,
         ImageTagMutability: 'IMMUTABLE',
@@ -222,7 +232,7 @@ describe('ServiciosStack', () => {
     }
   });
   test('las definiciones de tarea nunca usan :latest; sin imageTag la etiqueta es el parámetro ImageTag (obligatorio al desplegar)', () => {
-    expect(definicionesDeTarea()).toHaveLength(3);
+    expect(definicionesDeTarea()).toHaveLength(5);
     for (const d of definicionesDeTarea()) {
       const imagen = JSON.stringify(contenedor(d).Image);
       expect(imagen).not.toMatch(/latest/);
@@ -235,20 +245,92 @@ describe('ServiciosStack', () => {
   test('con imageTag (opción o contexto -c imageTag=<sha>) las tareas usan :<sha> y no hay parámetro', () => {
     const conTag = Template.fromStack(crearApp({ imageTag: '0123abcd' }).stacks.servicios);
     const defs = Object.values(conTag.findResources('AWS::ECS::TaskDefinition')) as Json[];
-    expect(defs).toHaveLength(3);
+    expect(defs).toHaveLength(5);
     for (const d of defs) expect(JSON.stringify(contenedor(d).Image)).toMatch(/:0123abcd"/);
     expect((conTag.toJSON().Parameters as Json | undefined)?.['ImageTag']).toBeUndefined();
   });
   test.each(['latest', 'con espacios', '', 'a/b'])('imageTag inválido %j → error', (tag) => {
     expect(() => crearApp({ imageTag: tag })).toThrow(/imageTag/);
   });
-  test('health check del contenedor y del balanceador en /salud', () => {
-    for (const d of definicionesDeTarea()) expect(JSON.stringify(contenedor(d).HealthCheck)).toContain('/salud');
+  test('health check del contenedor y del balanceador: /salud en los servicios y /login en web', () => {
+    for (const d of definicionesDeTarea()) {
+      const ruta = contenedor(d).Name === 'web' ? '/login' : '/salud';
+      expect(JSON.stringify(contenedor(d).HealthCheck)).toContain(ruta);
+    }
     servicios.hasResourceProperties('AWS::ElasticLoadBalancingV2::TargetGroup', Match.objectLike({ HealthCheckPath: '/salud' }));
+    servicios.hasResourceProperties('AWS::ElasticLoadBalancingV2::TargetGroup', Match.objectLike({ HealthCheckPath: '/login', Port: 3000 }));
   });
-  test('logs a CloudWatch y Service Connect en los tres servicios', () => {
-    servicios.resourceCountIs('AWS::Logs::LogGroup', 3);
-    servicios.resourcePropertiesCountIs('AWS::ECS::Service', { ServiceConnectConfiguration: Match.objectLike({ Enabled: true }) }, 3);
+  test('logs a CloudWatch y Service Connect en los cinco servicios', () => {
+    servicios.resourceCountIs('AWS::Logs::LogGroup', 5);
+    servicios.resourcePropertiesCountIs('AWS::ECS::Service', { ServiceConnectConfiguration: Match.objectLike({ Enabled: true }) }, 5);
+  });
+  test('svc-agenda: puerto 3004, JWKS por el gateway, secretos de agenda_db en la misma instancia', () => {
+    const def = contenedor(tareaDe('svc-agenda'));
+    const env = def.Environment as { Name: string; Value: unknown }[];
+    const valor = (n: string) => env.find((e) => e.Name === n)?.Value;
+    expect(valor('PORT')).toBe('3004');
+    expect(valor('JWKS_URL')).toBe('http://gateway:8080/api/identidad/.well-known/jwks.json');
+    expect(nombres(def.Secrets)).toEqual(expect.arrayContaining(['DATABASE_URL', 'MIGRATOR_DATABASE_URL']));
+    for (const n of nombres(def.Secrets)) expect(nombres(def.Environment)).not.toContain(n);
+    for (const Name of ['consultorio/agenda_app', 'consultorio/agenda_migrator']) {
+      servicios.hasResourceProperties('AWS::SecretsManager::Secret', Match.objectLike({ Name, KmsKeyId: Match.anyValue() }));
+    }
+    // El host de RDS es un token (Fn::Join): se busca la base en el JSON serializado de cada secreto.
+    const conAgendaDb = Object.values(servicios.findResources('AWS::SecretsManager::Secret')).filter((x) =>
+      JSON.stringify((x.Properties as Json).GenerateSecretString).includes('agenda_db'),
+    );
+    expect(conAgendaDb).toHaveLength(2);
+  });
+  test('web: puerto 3000, habla con el gateway por Service Connect y no lleva secretos', () => {
+    const def = contenedor(tareaDe('web'));
+    const env = def.Environment as { Name: string; Value: unknown }[];
+    const valor = (n: string) => env.find((e) => e.Name === n)?.Value;
+    expect(valor('PORT')).toBe('3000');
+    expect(valor('GATEWAY_URL')).toBe('http://gateway:8080');
+    expect(valor('COOKIE_SEGURA')).toBe('false'); // sin certificado: HTTP
+    expect(valor('WEB_ORIGEN')).toBeDefined();
+    expect(def.Secrets ?? []).toEqual([]);
+  });
+  test('con certificado, las cookies de web son seguras y su origen es la URL pública', () => {
+    const https = Template.fromStack(
+      crearApp({ certificadoArn: 'arn:aws:acm:mx-central-1:111111111111:certificate/prueba', urlPublica: 'https://app.ejemplo.mx' }).stacks.servicios,
+    );
+    const def = (Object.values(https.findResources('AWS::ECS::TaskDefinition')) as Json[]).find((d) => contenedor(d).Name === 'web')!;
+    const env = contenedor(def).Environment as { Name: string; Value: unknown }[];
+    expect(env).toEqual(expect.arrayContaining([{ Name: 'COOKIE_SEGURA', Value: 'true' }, { Name: 'WEB_ORIGEN', Value: 'https://app.ejemplo.mx' }]));
+  });
+  test('el balanceador enruta / a web (acción por omisión) y /api/* al gateway', () => {
+    const grupos = servicios.findResources('AWS::ElasticLoadBalancingV2::TargetGroup') as Record<string, Json>;
+    const idGrupo = (puerto: number) => Object.keys(grupos).find((id) => (grupos[id]!.Properties as Json).Port === puerto)!;
+    const web = idGrupo(3000);
+    const gateway = idGrupo(8080);
+    expect(web).toBeDefined();
+    expect(gateway).toBeDefined();
+    const [listener] = Object.values(servicios.findResources('AWS::ElasticLoadBalancingV2::Listener', { Properties: { Port: 80 } })) as Json[];
+    const porOmision = (listener!.Properties as Json).DefaultActions as Json[];
+    expect(porOmision).toHaveLength(1);
+    expect(idLogico(porOmision[0]!.TargetGroupArn)).toBe(web);
+    servicios.hasResourceProperties(
+      'AWS::ElasticLoadBalancingV2::ListenerRule',
+      Match.objectLike({
+        Conditions: [Match.objectLike({ Field: 'path-pattern', PathPatternConfig: { Values: ['/api/*'] } })],
+        Actions: [Match.objectLike({ Type: 'forward', TargetGroupArn: { Ref: gateway } })],
+      }),
+    );
+  });
+  test('con certificado, HTTPS lleva la misma regla /api/* y HTTP solo redirige', () => {
+    const https = Template.fromStack(conCertificado.stacks.servicios);
+    https.resourceCountIs('AWS::ElasticLoadBalancingV2::ListenerRule', 1);
+    https.hasResourceProperties(
+      'AWS::ElasticLoadBalancingV2::ListenerRule',
+      Match.objectLike({ Conditions: [Match.objectLike({ PathPatternConfig: { Values: ['/api/*'] } })] }),
+    );
+  });
+  test('la estimación de costo de bin/app.ts incluye svc-agenda y web', () => {
+    const texto = readFileSync(new URL('../bin/app.ts', import.meta.url), 'utf8');
+    expect(texto).toMatch(/svc-agenda/);
+    expect(texto).toMatch(/\bweb\b/);
+    expect(texto).toMatch(/Secrets Manager \(9 secretos\)/);
   });
   test('gateway: CONFIAR_EN_PROXY es el CIDR de la VPC y apunta a los servicios por Service Connect', () => {
     const env = contenedor(tareaDe('gateway')).Environment as { Name: string; Value: unknown }[];
@@ -257,6 +339,7 @@ describe('ServiciosStack', () => {
     expect(valor('PORT')).toBe('8080');
     expect(valor('IDENTIDAD_URL')).toBe('http://svc-identidad:3001');
     expect(valor('AUDITORIA_URL')).toBe('http://svc-auditoria:3003');
+    expect(valor('AGENDA_URL')).toBe('http://svc-agenda:3004');
     expect(valor('JWKS_URL')).toBe('http://svc-identidad:3001/.well-known/jwks.json');
   });
   test('secretos de BD, JWT y Better Auth inyectados como Secrets, nunca como Environment', () => {
@@ -285,7 +368,7 @@ describe('ServiciosStack', () => {
       servicios.hasResourceProperties('AWS::SecretsManager::Secret', Match.objectLike({ Name, KmsKeyId: Match.anyValue() }));
     }
   });
-  test('NODE_ENV=production en los tres servicios', () => {
+  test('NODE_ENV=production en los cinco servicios', () => {
     for (const d of definicionesDeTarea()) {
       expect(contenedor(d).Environment).toEqual(expect.arrayContaining([{ Name: 'NODE_ENV', Value: 'production' }]));
     }
@@ -309,8 +392,8 @@ describe('aislamiento de red', () => {
   const gateway = () => idDeGrupo(red, 'Grupo de seguridad del gateway');
   const alb = () => idDeGrupo(red, 'Grupo de seguridad del balanceador');
 
-  test('svc-identidad y svc-auditoria solo admiten ingreso desde el SG del gateway', () => {
-    for (const desc of ['Grupo de seguridad de svc-identidad', 'Grupo de seguridad de svc-auditoria']) {
+  test('svc-identidad, svc-auditoria y svc-agenda solo admiten ingreso desde el SG del gateway', () => {
+    for (const desc of ['Grupo de seguridad de svc-identidad', 'Grupo de seguridad de svc-auditoria', 'Grupo de seguridad de svc-agenda']) {
       const id = idDeGrupo(red, desc);
       const reglas = reglasDeEntrada().filter((r) => r.destino === id);
       expect(reglas.length).toBeGreaterThan(0);
@@ -320,10 +403,24 @@ describe('aislamiento de red', () => {
       }
     }
   });
-  test('el gateway solo admite ingreso desde el balanceador y desde svc-auditoria (JWKS)', () => {
+  test('el gateway solo admite ingreso desde el balanceador, web y los servicios que leen el JWKS', () => {
     const reglas = reglasDeEntrada().filter((r) => r.destino === gateway());
     expect(reglas.length).toBeGreaterThan(0);
-    for (const r of reglas) expect([alb(), idDeGrupo(red, 'Grupo de seguridad de svc-auditoria')]).toContain(r.origen);
+    const permitidos = [
+      alb(),
+      idDeGrupo(red, 'Grupo de seguridad de web'),
+      idDeGrupo(red, 'Grupo de seguridad de svc-auditoria'),
+      idDeGrupo(red, 'Grupo de seguridad de svc-agenda'),
+    ];
+    for (const r of reglas) expect(permitidos).toContain(r.origen);
+  });
+  test('web solo admite ingreso desde el balanceador', () => {
+    const reglas = reglasDeEntrada().filter((r) => r.destino === idDeGrupo(red, 'Grupo de seguridad de web'));
+    expect(reglas.length).toBeGreaterThan(0);
+    for (const r of reglas) {
+      expect(r.cidr).toBeUndefined();
+      expect(r.origen).toBe(alb());
+    }
   });
   test('solo el balanceador admite ingreso desde internet', () => {
     const publicos = reglasDeEntrada().filter((r) => r.cidr === '0.0.0.0/0');

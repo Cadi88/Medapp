@@ -20,7 +20,7 @@ const zonas = [
 const patronesApps = apps.flatMap((app) => [`@consultorio/${app}`, `@consultorio/${app}/*`, `@consultorio/svc-${app}`, `@consultorio/svc-${app}/*`]);
 
 export default tseslint.config(
-  { ignores: ['**/node_modules/**', '**/dist/**', '**/coverage/**', '**/.turbo/**', '.superpowers/**', '**/.next/**', '**/next-env.d.ts'] },
+  { ignores: ['**/node_modules/**', '**/dist/**', '**/coverage/**', '**/.turbo/**', '.superpowers/**', '**/.next/**', '**/next-env.d.ts', '**/playwright-report/**', '**/test-results/**'] },
   ...tseslint.configs.recommended,
   {
     files: ['**/*.{ts,tsx,mts}'],

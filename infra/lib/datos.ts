@@ -21,10 +21,14 @@ export interface DatosStackProps extends StackProps {
  * Datos: llave KMS, RDS PostgreSQL 16 (privado, cifrado, 35 días de respaldo/PITR, protegido contra borrado)
  * y bucket S3 cifrado con KMS.
  *
+ * Una sola instancia aloja las tres bases (`identidad_db`, `auditoria_db` y `agenda_db`): cada servicio tiene su base y sus
+ * roles, así que no hay nada más que crear en CDK para svc-agenda (el costo no cambia).
+ *
  * Arranque manual (una sola vez, por quien despliegue): CDK solo crea la instancia con su usuario maestro.
  * Hay que conectarse a ella y crear las bases y roles como en `docker/postgres/init.sql`
- * (`identidad_db`/`auditoria_db`, `<svc>_migrator` dueño, `<svc>_app` NOBYPASSRLS) con las contraseñas generadas
- * en los secretos `consultorio/<rol>` de Secrets Manager (ver ServiciosStack).
+ * (`identidad_db`/`auditoria_db`/`agenda_db`, `<svc>_migrator` dueño, `<svc>_app` NOBYPASSRLS) con las contraseñas
+ * generadas en los secretos `consultorio/<rol>` de Secrets Manager (ver ServiciosStack). Los esquemas los crea cada
+ * servicio al arrancar con sus migraciones (hoy; ver la lista previa al despliegue sobre pasarlas a una tarea única).
  */
 export class DatosStack extends Stack {
   readonly clave: Key;

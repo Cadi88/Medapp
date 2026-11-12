@@ -7,10 +7,12 @@ export interface EstadoFormulario {
   mensaje?: string;
 }
 
-/** Estado del alta del MFA: el QR (SVG generado en el servidor) y los códigos de respaldo. */
+/** Estado del alta del MFA: el QR (SVG generado en el servidor), la clave para teclearla a mano y los códigos de respaldo. */
 export interface EstadoConfiguracionMfa extends EstadoFormulario {
   qrSvg?: string;
   codigosRespaldo?: string[];
+  /** Secreto TOTP en base32, para quien no puede escanear el QR. */
+  claveManual?: string;
 }
 
 export interface ConsultorioDelUsuario {

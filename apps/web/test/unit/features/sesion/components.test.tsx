@@ -120,6 +120,7 @@ describe('ConfigurarMfa', () => {
     const estado: EstadoConfiguracionMfa = {
       qrSvg: '<svg data-testid="qr" xmlns="http://www.w3.org/2000/svg"></svg>',
       codigosRespaldo: ['aaaa-bbbb', 'cccc-dddd'],
+      claveManual: 'JBSWY3DPEHPK3PXP',
     };
     acciones.iniciarConfiguracionMfa.mockResolvedValueOnce(estado);
     render(<ConfigurarMfa />);
@@ -131,6 +132,8 @@ describe('ConfigurarMfa', () => {
     expect(await screen.findByTestId('qr')).toBeInTheDocument();
     expect(screen.getByText('aaaa-bbbb')).toBeInTheDocument();
     expect(screen.getByText('cccc-dddd')).toBeInTheDocument();
+    expect(screen.getByText(/¿No puedes escanear\?/)).toBeInTheDocument();
+    expect(screen.getByText('JBSWY3DPEHPK3PXP')).toBeInTheDocument();
     expect(screen.getByLabelText('Código de verificación')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /Confirmar y continuar/ })).toBeInTheDocument();
   });

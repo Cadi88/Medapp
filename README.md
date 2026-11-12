@@ -5,7 +5,9 @@ SaaS multi-tenant para consultorios médicos. Monorepo pnpm + turbo (Node 24, Ty
 - `apps/gateway`: punto de entrada único (JWT, rate limit, enrutamiento a los servicios).
 - `apps/svc-identidad`: registro de consultorios, autenticación (Better Auth, MFA) y tokens de tenant.
 - `apps/svc-auditoria`: bitácora de eventos con cadena hash por tenant.
-- `packages/*`: contratos de eventos y plataforma compartida. `tests/e2e`: prueba de punta a punta de la fase 0.
+- `apps/svc-agenda`: médicos, horarios, tipos de cita, bloqueos y citas (puerto 3004, base `agenda_db`).
+- `apps/web`: sitio web del consultorio (Next.js, puerto 3000): registro, agenda, médicos, equipo, perfil y bitácora.
+- `packages/*`: contratos de eventos y plataforma compartida. `tests/e2e`: E2E de API; `tests/e2e-web`: E2E de navegador (Playwright).
 
 ## Ejecutar en local
 
@@ -17,8 +19,8 @@ bash scripts/generar-dev-env.sh                  # una sola vez: crea .env con s
 docker compose --profile app up -d --build --wait
 ```
 
-El gateway queda en `http://localhost:8080` (rutas `/api/identidad/*`, `/api/auditoria/*` y `/api/agenda/*`) y el sitio
-web en `http://localhost:3000`. Sin `--profile app` solo se levanta la infraestructura (Postgres, NATS, MinIO).
+El sitio web queda en **`http://localhost:3000`** (abre `/registro` para crear un consultorio) y el gateway en
+`http://localhost:8080` (rutas `/api/identidad/*`, `/api/auditoria/*` y `/api/agenda/*`). Sin `--profile app` solo se levanta la infraestructura (Postgres, NATS, MinIO).
 
 El gateway confía como proxy solo en la IP fija del contenedor `web` (`CONFIAR_EN_PROXY=172.28.10.200/32`). En local un
 cliente que llama directo a Next puede elegir su `X-Forwarded-For` (no hay proxy inverso delante): aceptado, solo local.
@@ -38,6 +40,8 @@ cookies cuya cabecera `Origin` no coincida, así que los clientes deben enviar e
 pnpm test:unit                     # unitarias, sin Docker
 pnpm test                          # unitarias + integración (Testcontainers) con umbral de cobertura
 pnpm --filter @consultorio/e2e test  # E2E contra http://localhost:8080 (E2E_BASE_URL); requiere el perfil `app` arriba
+pnpm --filter @consultorio/e2e-web exec playwright install chromium   # una sola vez (solo Chromium, gratis)
+pnpm --filter @consultorio/e2e-web test  # E2E de navegador contra http://localhost:3000 (E2E_WEB_URL); requiere el perfil `app` arriba
 pnpm lint && pnpm typecheck
 ```
 
@@ -46,8 +50,8 @@ pnpm lint && pnpm typecheck
 El pipeline está en `.github/workflows/ci.yml`:
 
 - `verificar` (PR y push a `main`): lint, typecheck y pruebas (unit + integración con Testcontainers). En PR solo lo afectado respecto a `origin/main`; en `main`, todo.
-- `e2e`: levanta el stack con `docker compose --profile app` y corre `@consultorio/e2e`.
-- `imagenes` y `desplegar` (solo `main`): construyen y publican las tres imágenes en ECR (tag = SHA y `latest`) y fuerzan un nuevo despliegue en ECS.
+- `e2e`: levanta el stack con `docker compose --profile app`, corre `@consultorio/e2e` y después `@consultorio/e2e-web` (Playwright con Chromium); si falla, sube el reporte de Playwright como artefacto.
+- `imagenes` y `desplegar` (solo `main`): construyen y publican las cinco imágenes (gateway, svc-identidad, svc-auditoria, svc-agenda y web) en ECR solo con tag = SHA (sin `latest`) y registran una revisión nueva de la tarea en ECS.
 
 Configuración necesaria en GitHub para `imagenes` y `desplegar`:
 
@@ -60,7 +64,8 @@ Mientras `AWS_ROLE_ARN` no esté definida, esos dos jobs se omiten.
 
 `infra/` (`@consultorio/infra`) define la infraestructura de AWS con CDK en `mx-central-1`: `Consultorio-Red`
 (VPC de 2 AZ, 1 NAT), `Consultorio-Datos` (KMS, RDS PostgreSQL 16, S3), `Consultorio-Mensajeria` (NATS con JetStream en
-Fargate + EFS) y `Consultorio-Servicios` (ECR, ECS, ALB y secretos). El costo mensual estimado está al inicio de `infra/bin/app.ts`.
+Fargate + EFS) y `Consultorio-Servicios` (ECR, ECS, ALB y secretos). El ALB envía `/` al sitio `web` y `/api/*` al gateway;
+`agenda_db` vive en la misma instancia RDS. El costo mensual estimado está al inicio de `infra/bin/app.ts`.
 
 **Es solo código: no hay nada desplegado y no se ha ejecutado ningún comando contra AWS.** `cdk bootstrap` y `cdk deploy`
 crean recursos que cuestan dinero (del orden de 200 USD/mes); no ejecutarlos antes de tener ingresos o presupuesto aprobado.
@@ -80,12 +85,12 @@ Requisitos para un despliegue futuro (quien despliegue, con su cuenta):
    (origen que acepta Better Auth) usa por defecto el DNS del balanceador. Apuntar el DNS del dominio al ALB.
 4. Arranque manual de una sola vez (detallado en `infra/lib/servicios.ts`): crear en RDS las bases y roles como en
    `docker/postgres/init.sql` con las contraseñas de los secretos `consultorio/<rol>` de Secrets Manager, añadir a esos
-   cuatro secretos el campo `url` con la cadena de conexión completa y reemplazar `consultorio/jwt-private-jwk` por la JWK privada.
+   seis secretos (identidad, auditoría y agenda: `_app` y `_migrator`) el campo `url` con la cadena de conexión completa y reemplazar `consultorio/jwt-private-jwk` por la JWK privada.
 5. Configurar en GitHub `AWS_ROLE_ARN` (rol OIDC con permisos sobre ECR y ECS) y `ECS_CLUSTER=consultorio` (ver CI). Los
-   servicios ECS se llaman `gateway`, `svc-identidad` y `svc-auditoria` y sus repositorios `consultorio/<app>`.
+   servicios ECS se llaman `gateway`, `svc-identidad`, `svc-auditoria`, `svc-agenda` y `web` y sus repositorios `consultorio/<app>`.
 6. Imágenes: los repositorios ECR tienen etiquetas inmutables y no existe `:latest`. El primer despliegue fija la imagen
    inicial con `-c imageTag=<sha>` (sin él, la stack exige el parámetro `ImageTag`), así que antes hay que publicar
-   `consultorio/<app>:<sha>` de las tres apps. Después, el CI publica solo `:<sha>` y, tras la aprobación del environment
+   `consultorio/<app>:<sha>` de las cinco apps (el sitio `web` se construye con `docker/Dockerfile.web`). Después, el CI publica solo `:<sha>` y, tras la aprobación del environment
    `produccion`, registra una revisión nueva de cada definición de tarea con esa imagen y la asigna al servicio. Un
    `cdk deploy` posterior debe pasar el `imageTag` que esté en producción.
 
@@ -120,7 +125,10 @@ cerrarse (o aceptarse explícitamente) antes de poner datos reales en AWS:
       `dist/` de `@consultorio/platform` incluye `testing/` (con Testcontainers como dependencia de producción) y la app
       desplegada lleva su `src/` y `test/` (no declara `files`); sacar `src/`, `test/` y `testing`/Testcontainers de las imágenes.
 
-Notas de red: solo el ALB es público; `svc-identidad` y `svc-auditoria` solo aceptan tráfico del gateway (identidad confía en
+Variables nuevas (compose y CDK): `web` usa `GATEWAY_URL` (por defecto `http://gateway:8080`), `COOKIE_SEGURA` (`true` con HTTPS) y
+`WEB_ORIGEN` (origen público del sitio); `svc-identidad` recibe `ORIGENES_CONFIABLES` con ese mismo origen y el gateway `AGENDA_URL`.
+
+Notas de red: solo el ALB es público; `svc-identidad`, `svc-auditoria` y `svc-agenda` solo aceptan tráfico del gateway (identidad confía en
 `x-forwarded-for`), y `CONFIAR_EN_PROXY` del gateway es el CIDR de la VPC (`10.0.0.0/16`). `svc-auditoria` lee el JWKS por la ruta
 pública del gateway (`/api/identidad/.well-known/jwks.json`) para no abrir identidad a otro origen. Con `CDK_DEFAULT_ACCOUNT`
 definida la síntesis sigue sin consultar AWS (las zonas de disponibilidad están fijas en el código).

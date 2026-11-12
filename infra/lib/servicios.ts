@@ -15,6 +15,7 @@ import {
   ApplicationProtocol,
   ListenerAction,
   ListenerCertificate,
+  ListenerCondition,
   SslPolicy,
 } from 'aws-cdk-lib/aws-elasticloadbalancingv2';
 import { Key, type IKey } from 'aws-cdk-lib/aws-kms';
@@ -35,15 +36,17 @@ export interface ServiciosStackProps extends StackProps {
   sgGateway: ISecurityGroup;
   sgIdentidad: ISecurityGroup;
   sgAuditoria: ISecurityGroup;
+  sgAgenda: ISecurityGroup;
+  sgWeb: ISecurityGroup;
   /**
    * ARN de un certificado ACM (en mx-central-1) para el listener HTTPS. Sin él, el balanceador escucha solo
    * en HTTP:80; no usar así con datos reales (ver README, sección Infraestructura).
    */
   certificadoArn?: string;
-  /** Origen público de la API (BETTER_AUTH_URL), p. ej. https://api.ejemplo.mx. Por defecto, el DNS del balanceador. */
+  /** Origen público del sitio y de la API (comparten el balanceador), p. ej. https://app.ejemplo.mx. Por defecto, el DNS del balanceador. */
   urlPublica?: string;
   /**
-   * Etiqueta (SHA de git) de la imagen inicial de las tres tareas. Sin ella, la stack declara el parámetro de
+   * Etiqueta (SHA de git) de la imagen inicial de las cinco tareas. Sin ella, la stack declara el parámetro de
    * CloudFormation `ImageTag` (sin valor por defecto: el despliegue lo exige). Nunca `latest`.
    */
   imageTag?: string;
@@ -59,8 +62,8 @@ export function validarImageTag(tag: string): string {
   return tag;
 }
 
-type NombreApp = 'gateway' | 'svc-identidad' | 'svc-auditoria';
-const APPS: NombreApp[] = ['gateway', 'svc-identidad', 'svc-auditoria'];
+type NombreApp = 'gateway' | 'svc-identidad' | 'svc-auditoria' | 'svc-agenda' | 'web';
+const APPS: NombreApp[] = ['gateway', 'svc-identidad', 'svc-auditoria', 'svc-agenda', 'web'];
 
 interface OpcionesServicio {
   puerto: number;
@@ -69,13 +72,17 @@ interface OpcionesServicio {
   sg: ISecurityGroup;
   entorno: Record<string, string>;
   secretos?: Record<string, SecretoEcs>;
+  /** Ruta HTTP de salud; `/salud` en los servicios. El sitio web no tiene `/salud`: usa `/login` (pública y barata). */
+  rutaSalud?: string;
 }
 
 /**
  * Servicios: repositorios ECR, clúster ECS, servicios Fargate, ALB y secretos.
  *
- * Solo el gateway está detrás del ALB (público); `svc-identidad` y `svc-auditoria` quedan en subredes privadas y
- * se resuelven entre sí por Service Connect (`http://svc-identidad:3001`, `http://svc-auditoria:3003`).
+ * Detrás del ALB (público) están `web` (Next.js, ruta `/`, acción por omisión) y el gateway (`/api/*`). El navegador habla
+ * con `web`, que llama al gateway por Service Connect (`http://gateway:8080`). `svc-identidad`, `svc-auditoria` y
+ * `svc-agenda` quedan en subredes privadas y solo aceptan al gateway (`http://svc-identidad:3001`,
+ * `http://svc-auditoria:3003`, `http://svc-agenda:3004`).
  *
  * IMÁGENES: los repositorios tienen etiquetas inmutables y no existe `:latest`. El CI (.github/workflows/ci.yml) sube
  * `consultorio/<app>:<sha>` y, tras la aprobación del environment `produccion`, registra una revisión nueva de la
@@ -85,14 +92,14 @@ interface OpcionesServicio {
  * debe pasar el SHA que esté en producción, o devolvería las tareas a la etiqueta indicada.
  *
  * ARRANQUE MANUAL (una sola vez, por quien despliegue; no lo automatiza CDK):
- *  1. En RDS, crear las bases y roles como `docker/postgres/init.sql` (`identidad_db`/`auditoria_db`, `<svc>_migrator`
- *     dueño de tablas, `<svc>_app` NOBYPASSRLS) usando las contraseñas generadas en los secretos
- *     `consultorio/identidad_app`, `consultorio/identidad_migrator`, `consultorio/auditoria_app` y `consultorio/auditoria_migrator`.
- *  2. Añadir a cada uno de esos cuatro secretos el campo `url` con la cadena de conexión completa
+ *  1. En RDS (una sola instancia), crear las bases y roles como `docker/postgres/init.sql` (`identidad_db`/`auditoria_db`/
+ *     `agenda_db`, `<svc>_migrator` dueño de tablas, `<svc>_app` NOBYPASSRLS) usando las contraseñas generadas en los
+ *     secretos `consultorio/<svc>_app` y `consultorio/<svc>_migrator` de identidad, auditoria y agenda.
+ *  2. Añadir a cada uno de esos seis secretos el campo `url` con la cadena de conexión completa
  *     (`postgres://<usuario>:<password>@<host>:5432/<bd>`; usuario, password, host y bd ya están en el secreto):
  *     los servicios leen `DATABASE_URL` y `MIGRATOR_DATABASE_URL` de ese campo.
  *  3. Reemplazar el valor de `consultorio/jwt-private-jwk` por la JWK privada (JSON) que firma los tokens.
- *  Mientras no se haga, las tareas de svc-identidad y svc-auditoria no arrancan (campo/JSON inexistente).
+ *  Mientras no se haga, las tareas de svc-identidad, svc-auditoria y svc-agenda no arrancan (campo/JSON inexistente).
  */
 export class ServiciosStack extends Stack {
   readonly cluster: Cluster;
@@ -132,6 +139,8 @@ export class ServiciosStack extends Stack {
     const identidadMigrator = secretoBd('identidad_migrator', 'identidad_db');
     const auditoriaApp = secretoBd('auditoria_app', 'auditoria_db');
     const auditoriaMigrator = secretoBd('auditoria_migrator', 'auditoria_db');
+    const agendaApp = secretoBd('agenda_app', 'agenda_db');
+    const agendaMigrator = secretoBd('agenda_migrator', 'agenda_db');
     const betterAuth = new Secret(this, 'SecretoBetterAuth', {
       secretName: 'consultorio/better-auth-secret',
       encryptionKey: clave,
@@ -182,7 +191,7 @@ export class ServiciosStack extends Stack {
             'CMD',
             'node',
             '-e',
-            `fetch('http://127.0.0.1:${o.puerto}/salud').then(r=>process.exit(r.ok?0:1),()=>process.exit(1))`,
+            `fetch('http://127.0.0.1:${o.puerto}${o.rutaSalud ?? '/salud'}').then(r=>process.exit(r.ok?0:1),()=>process.exit(1))`,
           ],
           interval: Duration.seconds(30),
           timeout: Duration.seconds(5),
@@ -212,6 +221,9 @@ export class ServiciosStack extends Stack {
 
     const urlIdentidad = `http://svc-identidad:${PUERTOS.identidad}`;
     const urlAuditoria = `http://svc-auditoria:${PUERTOS.auditoria}`;
+    const urlAgenda = `http://svc-agenda:${PUERTOS.agenda}`;
+    const jwksPorGateway = `http://gateway:${PUERTOS.gateway}/api/identidad/.well-known/jwks.json`;
+    const https = props.certificadoArn !== undefined;
     const urlBd = (secreto: Secret) => SecretoEcs.fromSecretsManager(secreto, 'url');
 
     const gateway = crearServicio('gateway', {
@@ -223,6 +235,7 @@ export class ServiciosStack extends Stack {
         JWKS_URL: `${urlIdentidad}/.well-known/jwks.json`,
         IDENTIDAD_URL: urlIdentidad,
         AUDITORIA_URL: urlAuditoria,
+        AGENDA_URL: urlAgenda,
         // El ALB está en las subredes públicas de la VPC: confiar en X-Forwarded-For solo de ese rango.
         CONFIAR_EN_PROXY: CIDR_VPC,
       },
@@ -232,7 +245,8 @@ export class ServiciosStack extends Stack {
       cpu: 512,
       memoria: 1024,
       sg: props.sgIdentidad,
-      entorno: { NATS_URL: props.natsUrl, BETTER_AUTH_URL: urlPublica },
+      // El sitio y la API comparten origen (el balanceador): es el único que Better Auth debe aceptar con cookies.
+      entorno: { NATS_URL: props.natsUrl, BETTER_AUTH_URL: urlPublica, ORIGENES_CONFIABLES: urlPublica },
       secretos: {
         DATABASE_URL: urlBd(identidadApp),
         MIGRATOR_DATABASE_URL: urlBd(identidadMigrator),
@@ -248,29 +262,59 @@ export class ServiciosStack extends Stack {
       entorno: {
         NATS_URL: props.natsUrl,
         // Identidad solo acepta al gateway; el JWKS se lee por la ruta pública del gateway (Service Connect).
-        JWKS_URL: `http://gateway:${PUERTOS.gateway}/api/identidad/.well-known/jwks.json`,
+        JWKS_URL: jwksPorGateway,
       },
       secretos: { DATABASE_URL: urlBd(auditoriaApp), MIGRATOR_DATABASE_URL: urlBd(auditoriaMigrator) },
     });
+    crearServicio('svc-agenda', {
+      puerto: PUERTOS.agenda,
+      cpu: 256,
+      memoria: 512,
+      sg: props.sgAgenda,
+      entorno: { NATS_URL: props.natsUrl, JWKS_URL: jwksPorGateway },
+      secretos: { DATABASE_URL: urlBd(agendaApp), MIGRATOR_DATABASE_URL: urlBd(agendaMigrator) },
+    });
+    const web = crearServicio('web', {
+      puerto: PUERTOS.web,
+      cpu: 512,
+      memoria: 1024,
+      sg: props.sgWeb,
+      rutaSalud: '/login',
+      entorno: {
+        GATEWAY_URL: `http://gateway:${PUERTOS.gateway}`,
+        COOKIE_SEGURA: https ? 'true' : 'false',
+        WEB_ORIGEN: urlPublica,
+        HOSTNAME: '0.0.0.0', // Next standalone escucha en HOSTNAME; sin esto usaría el nombre del contenedor
+      },
+    });
 
-    // --- Listener: HTTPS con certificado; sin él, HTTP:80 (solo para pruebas) ---
-    const objetivos = {
+    // --- Listener: HTTPS con certificado; sin él, HTTP:80 (solo para pruebas). Por omisión todo va a web; /api/* al gateway ---
+    const destinoWeb = {
+      port: PUERTOS.web,
+      protocol: ApplicationProtocol.HTTP,
+      targets: [web.loadBalancerTarget({ containerName: 'web', containerPort: PUERTOS.web })],
+      healthCheck: { path: '/login' },
+      deregistrationDelay: Duration.seconds(30),
+    };
+    const destinoGateway = {
       port: PUERTOS.gateway,
       protocol: ApplicationProtocol.HTTP,
       targets: [gateway.loadBalancerTarget({ containerName: 'gateway', containerPort: PUERTOS.gateway })],
       healthCheck: { path: '/salud' },
       deregistrationDelay: Duration.seconds(30),
+      priority: 10,
+      conditions: [ListenerCondition.pathPatterns(['/api/*'])],
     };
     if (props.certificadoArn) {
-      alb
-        .addListener('Https', {
-          port: 443,
-          protocol: ApplicationProtocol.HTTPS,
-          certificates: [ListenerCertificate.fromArn(props.certificadoArn)],
-          sslPolicy: SslPolicy.RECOMMENDED_TLS,
-          open: false,
-        })
-        .addTargets('Gateway', objetivos);
+      const listener = alb.addListener('Https', {
+        port: 443,
+        protocol: ApplicationProtocol.HTTPS,
+        certificates: [ListenerCertificate.fromArn(props.certificadoArn)],
+        sslPolicy: SslPolicy.RECOMMENDED_TLS,
+        open: false,
+      });
+      listener.addTargets('Web', destinoWeb);
+      listener.addTargets('Gateway', destinoGateway);
       alb.addListener('Http', {
         port: 80,
         protocol: ApplicationProtocol.HTTP,
@@ -278,7 +322,9 @@ export class ServiciosStack extends Stack {
         defaultAction: ListenerAction.redirect({ protocol: 'HTTPS', port: '443', permanent: true }),
       });
     } else {
-      alb.addListener('Http', { port: 80, protocol: ApplicationProtocol.HTTP, open: false }).addTargets('Gateway', objetivos);
+      const listener = alb.addListener('Http', { port: 80, protocol: ApplicationProtocol.HTTP, open: false });
+      listener.addTargets('Web', destinoWeb);
+      listener.addTargets('Gateway', destinoGateway);
     }
   }
 }

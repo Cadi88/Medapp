@@ -252,6 +252,7 @@ describe('MFA', () => {
 
     expect(r.qrSvg).toMatch(/^<svg[\s\S]*<\/svg>\s*$/);
     expect(r.codigosRespaldo).toEqual(['aaaa-bbbb', 'cccc-dddd']);
+    expect(r.claveManual).toBe('JBSWY3DPEHPK3PXP');
     const [, o] = llamadas('/api/identidad/auth/two-factor/enable')[0] ?? [];
     expect(o).toMatchObject({ metodo: 'POST', cuerpo: { password: 'una-clave-larga' }, auth: 'sesion' });
   });

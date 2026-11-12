@@ -50,9 +50,9 @@ jobs:
 
       - run: pnpm turbo run typecheck ${{ steps.filtro.outputs.args }}
 
-      # Unitarias + integración (Testcontainers usa el Docker del runner). tests/e2e se excluye: necesita el stack
-      # levantado y corre en el job `e2e`.
-      - run: pnpm turbo run test ${{ steps.filtro.outputs.args }} --filter='!@consultorio/e2e'
+      # Unitarias + integración (Testcontainers usa el Docker del runner). tests/e2e y tests/e2e-web se excluyen:
+      # necesitan el stack levantado y corren en el job `e2e`.
+      - run: pnpm turbo run test ${{ steps.filtro.outputs.args }} --filter='!@consultorio/e2e' --filter='!@consultorio/e2e-web'
 
   e2e:
     name: E2E (docker compose)
@@ -77,8 +77,26 @@ jobs:
       - name: Levantar el stack
         run: docker compose --profile app up -d --build --wait
 
-      - name: Pruebas E2E
+      - name: Pruebas E2E de API
         run: pnpm --filter @consultorio/e2e test
+
+      # Solo Chromium; `--with-deps` instala las bibliotecas del sistema que necesita en el runner de Ubuntu.
+      - name: Instalar Chromium para Playwright
+        run: pnpm --filter @consultorio/e2e-web exec playwright install --with-deps chromium
+
+      - name: Pruebas E2E de navegador
+        run: pnpm --filter @consultorio/e2e-web test
+
+      - name: Subir el reporte de Playwright (solo si falla)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: |
+            tests/e2e-web/playwright-report
+            tests/e2e-web/test-results
+          retention-days: 7
+          if-no-files-found: ignore
 
       # Nunca se imprime .env: solo los logs de los contenedores.
       - name: Logs de compose (solo si falla)
@@ -102,9 +120,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # Simple a propósito: en main se construyen siempre las tres imágenes (la caché de capas de Docker
+        # Simple a propósito: en main se construyen siempre las cinco imágenes (la caché de capas de Docker
         # y `turbo prune` en el Dockerfile mantienen el coste bajo). No se calcula "afectado".
-        app: [gateway, svc-identidad, svc-auditoria]
+        app: [gateway, svc-identidad, svc-auditoria, svc-agenda, web]
     steps:
       - uses: actions/checkout@v4
 
@@ -123,7 +141,12 @@ jobs:
           APP: ${{ matrix.app }}
         run: |
           IMAGEN="${REGISTRO}/consultorio/${APP}:${GITHUB_SHA}"
-          docker build -f docker/Dockerfile.service --build-arg APP="${APP}" -t "${IMAGEN}" .
+          if [ "${APP}" = "web" ]; then
+            # El sitio (Next.js) tiene su propio Dockerfile.
+            docker build -f docker/Dockerfile.web -t "${IMAGEN}" .
+          else
+            docker build -f docker/Dockerfile.service --build-arg APP="${APP}" -t "${IMAGEN}" .
+          fi
           docker push "${IMAGEN}"
 
   desplegar:
@@ -139,7 +162,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        app: [gateway, svc-identidad, svc-auditoria]
+        app: [gateway, svc-identidad, svc-auditoria, svc-agenda, web]
     steps:
       - uses: aws-actions/configure-aws-credentials@v4
         with:

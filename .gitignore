@@ -6,3 +6,5 @@ coverage
 .superpowers/
 *.tsbuildinfo
 cdk.out
+playwright-report
+test-results

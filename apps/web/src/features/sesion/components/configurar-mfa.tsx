@@ -27,6 +27,11 @@ export function ConfigurarMfa() {
     <MarcoEntrada titulo="Escanea el código QR" descripcion="Escanéalo con tu aplicación de autenticación y escribe el código que muestra.">
       {/* El SVG lo genera el servidor a partir del URI TOTP: no contiene contenido del usuario. */}
       <div className="mx-auto w-48 rounded-md bg-white p-2" dangerouslySetInnerHTML={{ __html: inicio.qrSvg }} />
+      {inicio.claveManual ? (
+        <p className="text-center text-sm text-muted-foreground">
+          ¿No puedes escanear? Usa esta clave: <code className="font-mono text-foreground">{inicio.claveManual}</code>
+        </p>
+      ) : null}
       <section aria-labelledby="respaldo" className="grid gap-2">
         <h2 id="respaldo" className="text-sm font-medium">
           Códigos de respaldo

@@ -158,7 +158,8 @@ export async function iniciarConfiguracionMfa(_prev: EstadoConfiguracionMfa, fd:
   if (r.setCookies) await guardarCookiesAuth(r.setCookies);
   // El QR se dibuja en el servidor: el secreto TOTP no pasa por librerías del navegador.
   const qrSvg = await QRCode.toString(r.datos.totpURI, { type: 'svg', margin: 1 });
-  return { qrSvg, codigosRespaldo: r.datos.backupCodes };
+  const claveManual = new URL(r.datos.totpURI).searchParams.get('secret') ?? undefined;
+  return { qrSvg, codigosRespaldo: r.datos.backupCodes, ...(claveManual ? { claveManual } : {}) };
 }
 
 export async function confirmarMfa(_prev: EstadoFormulario, fd: FormData): Promise<EstadoFormulario> {
