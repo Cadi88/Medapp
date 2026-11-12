@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import { useActionState } from 'react';
 import { verificarTotp } from '../actions';
 import type { EstadoFormulario } from '../tipos';
@@ -24,6 +25,11 @@ export function FormularioTotp() {
         />
         <BotonEnviar enviando="Verificando…">Verificar</BotonEnviar>
       </form>
+      <p className="text-center text-sm">
+        <Link href="/login" className="text-primary underline-offset-4 hover:underline">
+          Volver a iniciar sesión
+        </Link>
+      </p>
     </MarcoEntrada>
   );
 }

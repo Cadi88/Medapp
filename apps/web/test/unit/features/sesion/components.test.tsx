@@ -74,6 +74,11 @@ describe('FormularioTotp', () => {
     await enviar(/Verificar/);
     expect(await screen.findByText('Código incorrecto o vencido')).toBeInTheDocument();
   });
+
+  test('ofrece volver a iniciar sesión', () => {
+    render(<FormularioTotp />);
+    expect(screen.getByRole('link', { name: 'Volver a iniciar sesión' })).toHaveAttribute('href', '/login');
+  });
 });
 
 describe('FormularioRegistro', () => {
