@@ -56,6 +56,26 @@ describe('encajaEnHorario', () => {
   });
 });
 
+describe('encajaEnHorario en cambios de horario (Tijuana)', () => {
+  const tj = 'America/Tijuana';
+  test('fall-back 2026-11-01: 01:50 PDT + 30 min termina 01:20 PST local y se rechaza', () => {
+    const bloque: BloqueHorario[] = [{ diaSemana: 0, horaInicio: '01:00', horaFin: '01:30' }];
+    expect(encajaEnHorario(rangoDeCita('2026-11-01T08:50:00Z', 30), bloque, tj)).toBe(false);
+  });
+  test('fall-back 2026-11-01: 01:00 PDT + 30 min dentro del bloque se acepta', () => {
+    const bloque: BloqueHorario[] = [{ diaSemana: 0, horaInicio: '01:00', horaFin: '01:30' }];
+    expect(encajaEnHorario(rangoDeCita('2026-11-01T08:00:00Z', 30), bloque, tj)).toBe(true);
+  });
+  test('spring-forward 2026-03-08: 01:30 PST + 60 min cruza el hueco (termina 03:30 PDT) y se rechaza', () => {
+    const bloque: BloqueHorario[] = [{ diaSemana: 0, horaInicio: '01:00', horaFin: '03:00' }];
+    expect(encajaEnHorario(rangoDeCita('2026-03-08T09:30:00Z', 60), bloque, tj)).toBe(false);
+  });
+  test('spring-forward 2026-03-08: 01:00 PST + 30 min se acepta', () => {
+    const bloque: BloqueHorario[] = [{ diaSemana: 0, horaInicio: '01:00', horaFin: '03:00' }];
+    expect(encajaEnHorario(rangoDeCita('2026-03-08T09:00:00Z', 30), bloque, tj)).toBe(true);
+  });
+});
+
 describe('seEnciman', () => {
   const a = rangoDeCita('2026-11-16T15:00:00Z', 30);
   test('solapados', () => {
