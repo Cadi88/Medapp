@@ -175,7 +175,7 @@ describe('URL normalizada', () => {
     ['/api/identidad/%2E%2E/agenda/x', 'http://gateway:8080/api/agenda/x'],
   ])('%s se normaliza fuera de identidad: no lleva la cookie de sesión', async (ruta, url) => {
     c.poner('better-auth.session_token', 's');
-    fetchFalso.mockResolvedValue(respuestaJson(200, {}));
+    fetchFalso.mockImplementation(async () => respuestaJson(200, {}));
 
     await llamarGateway(ruta, { auth: 'sesion' });
 
@@ -185,7 +185,7 @@ describe('URL normalizada', () => {
 
   test('una ruta de identidad con segmentos que se normalizan dentro de identidad sí lleva la cookie', async () => {
     c.poner('better-auth.session_token', 's');
-    fetchFalso.mockResolvedValue(respuestaJson(200, {}));
+    fetchFalso.mockImplementation(async () => respuestaJson(200, {}));
 
     await llamarGateway('/api/agenda/../identidad/tenants/mios', { auth: 'sesion' });
 
@@ -213,5 +213,30 @@ describe('ipDelCliente', () => {
   test('sin X-Forwarded-For (o vacío) no se envía ninguno', () => {
     expect(ipDelCliente(new Headers())).toBeUndefined();
     expect(ipDelCliente(new Headers({ 'x-forwarded-for': ' , ' }))).toBeUndefined();
+  });
+});
+
+describe('llamarGateway · Origin hacia Better Auth (R11)', () => {
+  beforeEach(() => {
+    vi.stubEnv('WEB_ORIGEN', 'http://localhost:3000');
+    fetchFalso.mockImplementation(async () => respuestaJson(200, {}));
+  });
+
+  test('envía Origin: WEB_ORIGEN a /api/identidad/auth/*', async () => {
+    await llamarGateway('/api/identidad/auth/two-factor/verify-totp', { metodo: 'POST', cuerpo: { code: '123456' }, auth: 'sesion' });
+    expect(peticion().headers.get('origin')).toBe('http://localhost:3000');
+  });
+
+  test('no envía Origin a otras rutas', async () => {
+    await llamarGateway('/api/identidad/tenants/mios', { auth: 'sesion' });
+    await llamarGateway('/api/agenda/citas', { auth: 'token' });
+    expect(peticion(0).headers.get('origin')).toBeNull();
+    expect(peticion(1).headers.get('origin')).toBeNull();
+  });
+
+  test('sin WEB_ORIGEN no envía Origin', async () => {
+    vi.stubEnv('WEB_ORIGEN', '');
+    await llamarGateway('/api/identidad/auth/sign-out', { metodo: 'POST', auth: 'sesion' });
+    expect(peticion().headers.get('origin')).toBeNull();
   });
 });

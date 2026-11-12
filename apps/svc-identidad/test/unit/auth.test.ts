@@ -30,3 +30,29 @@ describe('createAuth', () => {
     expect(res.status).not.toBe(404);
   });
 });
+
+describe('createAuth · trustedOrigins', () => {
+  const crear = (trustedOrigins?: string[]) =>
+    createAuth({
+      database: memoryAdapter({ user: [], session: [], account: [], verification: [], twoFactor: [] }),
+      secret: 'x'.repeat(40),
+      baseURL: 'http://localhost:8080',
+      ...(trustedOrigins ? { trustedOrigins } : {}),
+    });
+  // En pruebas Better Auth desactiva la verificación de Origin; se comprueba la lista que usaría en producción.
+  const confiables = async (auth: ReturnType<typeof crear>) => (await auth.$context).trustedOrigins;
+
+  test('los orígenes dados se agregan a los confiables, además del baseURL', async () => {
+    const lista = await confiables(crear(['http://localhost:3000']));
+    expect(lista).toContain('http://localhost:3000');
+    expect(lista).toContain('http://localhost:8080');
+  });
+
+  test('sin la opción (o vacía) solo es confiable el baseURL', async () => {
+    for (const auth of [crear(), crear([])]) {
+      const lista = await confiables(auth);
+      expect(lista).not.toContain('http://localhost:3000');
+      expect(lista).toContain('http://localhost:8080');
+    }
+  });
+});

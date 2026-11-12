@@ -1,6 +1,6 @@
 import 'server-only';
 import type { z } from 'zod';
-import { gatewayUrl } from '@/lib/config';
+import { gatewayUrl, webOrigen } from '@/lib/config';
 import { cabeceraCookieAuth, leerToken } from '@/lib/sesion/cookies';
 import { errorDeRespuesta, exito, fallo, type Resultado } from './resultado';
 
@@ -22,6 +22,7 @@ export interface OpcionesGateway<T> {
 
 /** La cookie de sesión de Better Auth solo la necesita identidad; nunca sale hacia otros servicios. */
 const PREFIJO_IDENTIDAD = '/api/identidad/';
+const PREFIJO_AUTH = '/api/identidad/auth/';
 
 const ERROR_RED = { code: 'INTERNO', message: 'No se pudo contactar al servidor' } as const;
 const ERROR_RESPUESTA = { code: 'INTERNO', message: 'Respuesta inesperada del servidor' } as const;
@@ -42,6 +43,9 @@ async function cabeceras<T>(url: URL, o: OpcionesGateway<T>): Promise<Headers> {
   const h = new Headers({ accept: 'application/json' });
   if (o.cuerpo !== undefined) h.set('content-type', 'application/json');
   if (o.ip) h.set('x-forwarded-for', o.ip);
+  // Better Auth rechaza POST con cookie sin un Origin confiable; el fetch del servidor no manda ninguno.
+  const origen = webOrigen();
+  if (origen && url.pathname.startsWith(PREFIJO_AUTH)) h.set('origin', origen);
   if (o.auth === 'token') {
     const token = await leerToken();
     if (token) h.set('authorization', `Bearer ${token}`);

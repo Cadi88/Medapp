@@ -12,6 +12,8 @@ export interface AuthOptions {
   baseURL: string;
   /** Límite de peticiones propio de Better Auth (p. ej. 3 sign-in/10 s por IP). `undefined` = valor por defecto de Better Auth (solo en producción). */
   rateLimitEnabled?: boolean;
+  /** Orígenes que pueden enviar POST con cookies (p. ej. el sitio web). Vacío/`undefined` = solo `baseURL`. */
+  trustedOrigins?: string[];
 }
 
 /**
@@ -28,6 +30,7 @@ export function createAuth(o: AuthOptions) {
     secret: o.secret,
     baseURL: o.baseURL,
     basePath: '/auth',
+    ...(o.trustedOrigins?.length ? { trustedOrigins: o.trustedOrigins } : {}),
     emailAndPassword: { enabled: true, minPasswordLength: 10, autoSignIn: false },
     // La IP de cliente para el límite sale de x-forwarded-for, que fija el gateway (único acceso a este servicio).
     advanced: { database: { generateId: () => uuidv7() }, ipAddress: { ipAddressHeaders: ['x-forwarded-for'] } },

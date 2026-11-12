@@ -20,7 +20,7 @@ export interface ServerOptions {
   nc?: NatsConnection;
   /** Llave Ed25519 con la que identidad firma los tokens de tenant; de ella se deriva el JWKS local. */
   jwtPrivateJwk: JWK;
-  betterAuth: { secret: string; baseURL: string; rateLimitEnabled?: boolean };
+  betterAuth: { secret: string; baseURL: string; rateLimitEnabled?: boolean; trustedOrigins?: string[] };
 }
 
 /** Rutas sin JWT de tenant. `/tenants/mios` y `/sesion/tenant` usan la sesión de Better Auth. */
@@ -37,6 +37,7 @@ export async function buildServer(o: ServerOptions): Promise<FastifyInstance> {
     database: o.pool,
     secret: o.betterAuth.secret,
     baseURL: o.betterAuth.baseURL,
+    ...(o.betterAuth.trustedOrigins === undefined ? {} : { trustedOrigins: o.betterAuth.trustedOrigins }),
     ...(o.betterAuth.rateLimitEnabled === undefined ? {} : { rateLimitEnabled: o.betterAuth.rateLimitEnabled }),
   });
   await app.register(authRoutes, { auth });

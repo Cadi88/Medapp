@@ -65,6 +65,8 @@ services:
       BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?falta BETTER_AUTH_SECRET; ejecuta scripts/generar-dev-env.sh}
       # Origen público de la API (el gateway): Better Auth solo acepta POST con cookies cuyo Origin coincida.
       BETTER_AUTH_URL: ${BETTER_AUTH_URL:-http://localhost:8080}
+      # Origen del sitio web: sus POST server-side con cookie (verify-totp, change-password...) llevan este Origin.
+      ORIGENES_CONFIABLES: ${WEB_ORIGEN:-http://localhost:3000}
     depends_on:
       postgres: { condition: service_healthy }
       nats: { condition: service_healthy }
@@ -137,6 +139,8 @@ services:
       GATEWAY_URL: http://gateway:8080
       # En local es HTTP; en producción (HTTPS) va en "true".
       COOKIE_SEGURA: "false"
+      # Origen público del sitio: se envía como Origin a Better Auth (debe estar en ORIGENES_CONFIABLES de identidad).
+      WEB_ORIGEN: ${WEB_ORIGEN:-http://localhost:3000}
     networks:
       default:
         ipv4_address: 172.28.10.200

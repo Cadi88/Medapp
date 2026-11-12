@@ -15,3 +15,8 @@ export function gatewayUrl(env: Env = process.env): string {
 export function cookieSegura(env: Env = process.env): boolean {
   return env.COOKIE_SEGURA === 'true';
 }
+
+/** `WEB_ORIGEN`: origen público del sitio (p. ej. `http://localhost:3000`); se envía como `Origin` a Better Auth. */
+export function webOrigen(env: Env = process.env): string | undefined {
+  return env.WEB_ORIGEN?.replace(/\/+$/, '') || undefined;
+}
