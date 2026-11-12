@@ -66,6 +66,8 @@ export function AgendaCliente({ medicos, tipos, zona, puedeFiltrar }: Props) {
 
   const eventos = useMemo(() => citasAEventos(citas, medicos, zona, tipos), [citas, medicos, zona, tipos]);
   const detalle = citas.find((c) => c.id === detalleId);
+  // La cita abierta en el formulario se toma de la lista recargada: tras un conflicto de versión el reintento usa la versión vigente.
+  const citaDelFormulario = formulario?.cita ? (citas.find((c) => c.id === formulario.cita?.id) ?? formulario.cita) : undefined;
 
   const alCambiarRango = useCallback(
     (d: string, h: string) => setRangoCalendario((previo) => (previo?.desde === d && previo.hasta === h ? previo : { desde: d, hasta: h })),
@@ -172,7 +174,7 @@ export function AgendaCliente({ medicos, tipos, zona, puedeFiltrar }: Props) {
               medicos={medicos}
               tipos={tipos}
               zona={zona}
-              {...(formulario.cita ? { cita: formulario.cita } : {})}
+              {...(citaDelFormulario ? { cita: citaDelFormulario } : {})}
               {...(medicoId ? { medicoIdInicial: medicoId } : {})}
               {...(formulario.fecha ? { fechaInicial: formulario.fecha } : {})}
               onListo={() => cerrarFormulario(true)}

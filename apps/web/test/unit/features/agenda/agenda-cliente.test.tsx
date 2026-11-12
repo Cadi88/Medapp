@@ -159,6 +159,33 @@ describe('AgendaCliente (escritorio)', () => {
   });
 });
 
+describe('AgendaCliente (conflicto de versión)', () => {
+  test('tras CONFLICTO_VERSION el reintento del formulario usa la versión nueva', async () => {
+    const H1 = '2026-11-12T17:00:00.000Z';
+    acciones.cargarHuecos.mockResolvedValue({ ok: true, huecos: [H1] });
+    acciones.reprogramarCita
+      .mockResolvedValueOnce({ mensaje: 'Alguien modificó esta cita', recargar: true })
+      .mockResolvedValueOnce({ ok: true });
+    render(<AgendaCliente medicos={medicos} tipos={tipos} zona={ZONA} puedeFiltrar />);
+    await verRango();
+    await waitFor(() => expect(eventosActuales()).toHaveLength(1));
+    act(() => (fc.props.eventClick as (a: unknown) => void)({ event: { id: cita.id } }));
+    await userEvent.click(await screen.findByRole('button', { name: 'Reprogramar' }));
+    await userEvent.click(await screen.findByRole('radio', { name: '11:00' }));
+
+    // otra persona modificó la cita: al recargar llega la versión 5
+    acciones.cargarCitas.mockResolvedValue({ ok: true, citas: [{ ...cita, version: 5 }] });
+    await userEvent.click(screen.getAllByRole('button', { name: 'Reprogramar' }).at(-1) as HTMLElement);
+    expect(await screen.findByText('Alguien modificó esta cita')).toBeInTheDocument();
+    expect(acciones.reprogramarCita).toHaveBeenLastCalledWith(expect.objectContaining({ version: 4 }));
+
+    await userEvent.click(await screen.findByRole('radio', { name: '11:00' }));
+    await userEvent.click(screen.getAllByRole('button', { name: 'Reprogramar' }).at(-1) as HTMLElement);
+    await waitFor(() => expect(acciones.reprogramarCita).toHaveBeenCalledTimes(2));
+    expect(acciones.reprogramarCita).toHaveBeenLastCalledWith(expect.objectContaining({ version: 5 }));
+  });
+});
+
 describe('AgendaCliente (móvil)', () => {
   test('por debajo de 768 px muestra la lista del día y carga el día de hoy', async () => {
     fijarMovil(true);
