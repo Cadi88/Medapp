@@ -26,3 +26,24 @@ export async function guardarConsultorio(tx: pg.PoolClient, tenantId: string, zo
     [tenantId, zonaHoraria],
   );
 }
+
+/** Médicos activos del tenant por nombre; `soloId` restringe a uno. */
+export async function listarMedicosActivos(tx: pg.PoolClient, tenantId: string, soloId?: string): Promise<{ usuarioId: string; nombre: string }[]> {
+  const r = await tx.query<{ usuario_id: string; nombre: string }>(
+    `SELECT usuario_id, nombre FROM medico
+      WHERE tenant_id = $1 AND activo AND ($2::uuid IS NULL OR usuario_id = $2)
+      ORDER BY nombre, usuario_id`,
+    [tenantId, soloId ?? null],
+  );
+  return r.rows.map((f) => ({ usuarioId: f.usuario_id, nombre: f.nombre }));
+}
+
+export async function existeMedicoActivo(tx: pg.PoolClient, tenantId: string, usuarioId: string): Promise<boolean> {
+  const r = await tx.query('SELECT 1 FROM medico WHERE tenant_id = $1 AND usuario_id = $2 AND activo', [tenantId, usuarioId]);
+  return r.rowCount === 1;
+}
+
+export async function leerZonaHoraria(tx: pg.PoolClient, tenantId: string): Promise<string | null> {
+  const r = await tx.query<{ zona_horaria: string }>('SELECT zona_horaria FROM consultorio WHERE tenant_id = $1', [tenantId]);
+  return r.rows[0]?.zona_horaria ?? null;
+}
