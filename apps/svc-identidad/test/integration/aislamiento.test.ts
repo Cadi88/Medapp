@@ -60,7 +60,7 @@ describe('aislamiento entre tenants (identidad_app)', () => {
 
   test('fn_membresias_usuario devuelve las membresías del usuario sin tenant activo', async () => {
     const r = await env.appPool.query('select * from fn_membresias_usuario($1)', [A.usuarioId]);
-    expect(r.rows).toEqual([{ tenant_id: A.tenantId, nombre: 'Consultorio a-aislamiento', slug: 'a-aislamiento', rol: 'admin' }]);
+    expect(r.rows).toEqual([{ tenant_id: A.tenantId, nombre: 'Consultorio a-aislamiento', slug: 'a-aislamiento', rol: 'medico', admin: true }]);
     expect((await env.appPool.query('select * from fn_membresias_usuario($1)', [A.tenantId])).rowCount).toBe(0);
   });
 

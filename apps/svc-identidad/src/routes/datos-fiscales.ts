@@ -1,4 +1,4 @@
-import { requireRole, withTenant } from '@consultorio/platform';
+import { requireAdmin, withTenant } from '@consultorio/platform';
 import type { FastifyPluginAsync } from 'fastify';
 import type pg from 'pg';
 import { exigirActor } from '../actor.js';
@@ -9,11 +9,11 @@ export interface DatosFiscalesRoutesOptions {
 }
 
 export const datosFiscalesRoutes: FastifyPluginAsync<DatosFiscalesRoutesOptions> = async (app, { pool }) => {
-  app.put('/datos-fiscales', { preHandler: requireRole('admin') }, async (req) => {
+  app.put('/datos-fiscales', { preHandler: requireAdmin() }, async (req) => {
     const d = datosFiscalesSchema.parse(req.body);
     const { tenantId, usuarioId } = req.ctx;
     await withTenant(pool, tenantId, async (tx) => {
-      await exigirActor(tx, { tenantId, usuarioId }, ['admin']);
+      await exigirActor(tx, { tenantId, usuarioId }, { admin: true });
       await tx.query(
         `INSERT INTO datos_fiscales (tenant_id, rfc, razon_social, regimen_fiscal, cp) VALUES ($1, $2, $3, $4, $5)
          ON CONFLICT (tenant_id) DO UPDATE SET

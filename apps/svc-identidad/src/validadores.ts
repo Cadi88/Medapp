@@ -29,6 +29,7 @@ export const miembroSchema = z.strictObject({
   email: z.email().transform((e) => e.toLowerCase()),
   nombre: z.string().trim().min(1).max(120),
   rol: rolSchema,
+  admin: z.boolean(),
   passwordTemporal: z.string().min(10).max(128),
 });
 export type MiembroInput = z.infer<typeof miembroSchema>;

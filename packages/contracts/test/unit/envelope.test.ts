@@ -4,7 +4,9 @@ import {
   MedicoActualizado,
   TenantCreado,
   UsuarioDesvinculado,
+  MiembroActualizado,
   UsuarioVinculado,
+  UsuarioVinculadoV1,
   defineEvent,
   eventEnvelopeSchema,
 } from '../../src/index.js';
@@ -98,21 +100,42 @@ describe('eventEnvelopeSchema', () => {
 
 describe('definiciones de eventos de identidad', () => {
   const casos = [
-    { def: TenantCreado, type: 'tenant.creado', valida: tenantData, invalida: { ...tenantData, adminUsuarioId: 'x' } },
-    { def: UsuarioVinculado, type: 'usuario.vinculado', valida: { usuarioId: U, rol: 'medico' }, invalida: { usuarioId: U, rol: 'root' } },
-    { def: UsuarioDesvinculado, type: 'usuario.desvinculado', valida: { usuarioId: U }, invalida: { usuarioId: 5 } },
+    { def: TenantCreado, type: 'tenant.creado', version: 1, valida: tenantData, invalida: { ...tenantData, adminUsuarioId: 'x' } },
+    {
+      def: UsuarioVinculado,
+      type: 'usuario.vinculado',
+      version: 2,
+      valida: { usuarioId: U, nombre: 'Ana', rol: 'medico', admin: true },
+      invalida: { usuarioId: U, nombre: 'Ana', rol: 'admin', admin: true },
+    },
+    {
+      def: UsuarioVinculadoV1,
+      type: 'usuario.vinculado',
+      version: 1,
+      valida: { usuarioId: U, rol: 'admin' },
+      invalida: { usuarioId: U, rol: 'root' },
+    },
+    {
+      def: MiembroActualizado,
+      type: 'miembro.actualizado',
+      version: 1,
+      valida: { usuarioId: U, nombre: 'Ana', rol: 'recepcion', admin: false },
+      invalida: { usuarioId: U, nombre: 'Ana', rol: 'recepcion' },
+    },
+    { def: UsuarioDesvinculado, type: 'usuario.desvinculado', version: 1, valida: { usuarioId: U }, invalida: { usuarioId: 5 } },
     {
       def: MedicoActualizado,
       type: 'medico.actualizado',
+      version: 1,
       valida: { usuarioId: U, cedulaProfesional: '1234567', especialidad: 'Cardiología' },
       invalida: { usuarioId: U, cedulaProfesional: '1234567' },
     },
   ];
 
-  test.each(casos)('$type: acepta data válida y rechaza inválida', ({ def, type, valida, invalida }) => {
+  test.each(casos)('$type v$version: acepta data válida y rechaza inválida', ({ def, type, version, valida, invalida }) => {
     const d = def as unknown as ReturnType<typeof defineEvent<unknown>>;
     expect(d.type).toBe(type);
-    expect(d.version).toBe(1);
+    expect(d.version).toBe(version);
     const e = d.create({ tenantId: T, actorId: U, traceId: 't', data: valida });
     expect(d.parse(e).data).toEqual(valida);
     expect(() => d.parse({ ...e, data: invalida })).toThrow();

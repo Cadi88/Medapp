@@ -14,10 +14,23 @@ export const TenantCreado = defineEvent(
   }),
 );
 
-export const UsuarioVinculado = defineEvent(
+/** Esquema anterior (v1, con `admin` como rol): los consumidores que aceptan ambas versiones lo siguen usando. */
+export const UsuarioVinculadoV1 = defineEvent(
   'usuario.vinculado',
   1,
-  z.object({ usuarioId: z.string().uuid(), rol: rolSchema }),
+  z.object({ usuarioId: z.string().uuid(), rol: z.enum(['admin', 'medico', 'recepcion']) }),
+);
+
+export const UsuarioVinculado = defineEvent(
+  'usuario.vinculado',
+  2,
+  z.object({ usuarioId: z.string().uuid(), nombre: z.string(), rol: rolSchema, admin: z.boolean() }),
+);
+
+export const MiembroActualizado = defineEvent(
+  'miembro.actualizado',
+  1,
+  z.object({ usuarioId: z.string().uuid(), nombre: z.string(), rol: rolSchema, admin: z.boolean() }),
 );
 
 export const UsuarioDesvinculado = defineEvent('usuario.desvinculado', 1, z.object({ usuarioId: z.string().uuid() }));

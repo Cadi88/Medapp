@@ -7,6 +7,11 @@ export const errorCodeSchema = z.enum([
   'VALIDACION',
   'CONFLICTO',
   'NO_ENCONTRADO',
+  'PASSWORD_TEMPORAL',
+  'FUERA_DE_HORARIO',
+  'HORARIO_OCUPADO',
+  'HORARIO_BLOQUEADO',
+  'CONFLICTO_VERSION',
   'INTERNO',
 ]);
 

@@ -8,6 +8,7 @@ const input = registroSchema.parse({
   nombreConsultorio: 'Consultorio Uno',
   slug: 'uno',
   zonaHoraria: 'America/Mexico_City',
+  esMedico: true,
   admin: { nombre: 'Ana', email: 'ana@ejemplo.mx', password: 'una-clave-larga' },
 });
 const USUARIO = uuidv7();
@@ -31,7 +32,7 @@ const falla = (e: unknown) => vi.fn(async () => {
 });
 
 describe('construirEventos', () => {
-  test('genera tenant.creado y usuario.vinculado(admin) válidos contra el contrato', () => {
+  test('genera tenant.creado y usuario.vinculado v2 (rol de trabajo + admin) válidos contra el contrato', () => {
     const tenantId = uuidv7();
     const [a, b] = construirEventos({ tenantId, usuarioId: USUARIO, input, traceId: TRACE });
     expect(TenantCreado.parse(a)).toMatchObject({
@@ -40,7 +41,12 @@ describe('construirEventos', () => {
       trace_id: TRACE,
       data: { tenantId, nombre: 'Consultorio Uno', slug: 'uno', zonaHoraria: 'America/Mexico_City', adminUsuarioId: USUARIO },
     });
-    expect(UsuarioVinculado.parse(b)).toMatchObject({ tenant_id: tenantId, data: { usuarioId: USUARIO, rol: 'admin' } });
+    expect(UsuarioVinculado.parse(b)).toMatchObject({ tenant_id: tenantId, version: 2, data: { usuarioId: USUARIO, nombre: 'Ana', rol: 'medico', admin: true } });
+  });
+
+  test('esMedico=false: el fundador es recepción con permiso admin', () => {
+    const [, b] = construirEventos({ tenantId: uuidv7(), usuarioId: USUARIO, input: { ...input, esMedico: false }, traceId: TRACE });
+    expect(UsuarioVinculado.parse(b).data).toEqual({ usuarioId: USUARIO, nombre: 'Ana', rol: 'recepcion', admin: true });
   });
 });
 

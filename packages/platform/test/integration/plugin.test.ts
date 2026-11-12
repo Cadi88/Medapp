@@ -3,12 +3,12 @@ import Fastify from 'fastify';
 import { SignJWT, createLocalJWKSet, exportJWK, generateKeyPair } from 'jose';
 import { afterAll, beforeAll, describe, expect, test } from 'vitest';
 import { z } from 'zod';
-import { AppError, createHttpApp, createLogger, platformPlugin, requireRole } from '../../src/index.js';
+import { AppError, createHttpApp, createLogger, platformPlugin, requireAdmin } from '../../src/index.js';
 import { startTestJwks, type TestJwks } from '../../src/testing/index.js';
 
 const T = '0194a1b2-0000-7000-8000-000000000001';
 const U = '0194a1b2-0000-7000-8000-000000000002';
-const claims = { sub: U, tid: T, rol: 'recepcion', mfa: false };
+const claims = { sub: U, tid: T, rol: 'recepcion', admin: false, mfa: false };
 const auth = (t: string) => ({ authorization: `Bearer ${t}` });
 const NO_AUTH = { code: 'NO_AUTENTICADO', message: 'No autenticado' };
 
@@ -32,7 +32,7 @@ beforeAll(async () => {
     rutasPublicas: ['/publica', '/auth/*'],
   });
   app.get('/privada', async (req) => req.ctx);
-  app.get('/solo-admin', { preHandler: requireRole('admin') }, async () => ({ ok: true }));
+  app.get('/solo-admin', { preHandler: requireAdmin() }, async () => ({ ok: true }));
   app.get('/publica', async (req) => ({ traceId: req.ctx.traceId }));
   app.get('/auth/x', async () => ({ ok: true }));
   app.get('/explota', async () => {
@@ -87,12 +87,19 @@ describe('autenticación', () => {
     expect((await app.inject({ url: '/privada', headers: auth(t) })).statusCode).toBe(200);
   });
   test('Review Focus 5: token sin tid → 401', async () => {
-    const t = await jwks.sign({ sub: U, rol: 'admin', mfa: true });
+    const t = await jwks.sign({ sub: U, rol: 'medico', admin: true, mfa: true });
     expect((await app.inject({ url: '/privada', headers: auth(t) })).statusCode).toBe(401);
   });
   test('claims con rol inválido → 401', async () => {
     const t = await jwks.sign({ ...claims, rol: 'root' });
     expect((await app.inject({ url: '/privada', headers: auth(t) })).statusCode).toBe(401);
+  });
+  test('token sin claim admin o con rol admin (modelo anterior) → 401', async () => {
+    const sinAdmin = { sub: U, tid: T, rol: 'recepcion', mfa: false };
+    for (const c of [sinAdmin, { ...claims, rol: 'admin' }]) {
+      const t = await jwks.sign(c);
+      expect((await app.inject({ url: '/privada', headers: auth(t) })).statusCode).toBe(401);
+    }
   });
   test('token HS256 → 401', async () => {
     const t = await new SignJWT(claims)
@@ -116,7 +123,7 @@ describe('autenticación', () => {
   test('token válido expone request.ctx', async () => {
     const r = await app.inject({ url: '/privada', headers: auth(await jwks.sign(claims)) });
     expect(r.statusCode).toBe(200);
-    expect(r.json()).toMatchObject({ tenantId: T, usuarioId: U, rol: 'recepcion', mfa: false });
+    expect(r.json()).toMatchObject({ tenantId: T, usuarioId: U, rol: 'recepcion', admin: false, mfa: false });
   });
   test('ruta desconocida sin token → 401 (no revela qué existe)', async () => {
     expect((await app.inject('/no-existe')).statusCode).toBe(401);
@@ -128,19 +135,19 @@ describe('autenticación', () => {
 });
 
 describe('roles', () => {
-  test('rol insuficiente → 403 PROHIBIDO', async () => {
+  test('sin permiso admin → 403 PROHIBIDO', async () => {
     const r = await app.inject({ url: '/solo-admin', headers: auth(await jwks.sign(claims)) });
     expect(r.statusCode).toBe(403);
     expect(r.json().code).toBe('PROHIBIDO');
   });
-  test('rol permitido → 200', async () => {
-    const t = await jwks.sign({ ...claims, rol: 'admin', mfa: true });
+  test('con permiso admin → 200', async () => {
+    const t = await jwks.sign({ ...claims, admin: true, mfa: true });
     expect((await app.inject({ url: '/solo-admin', headers: auth(t) })).statusCode).toBe(200);
   });
-  test('requireRole sin ctx autenticado → 401', async () => {
+  test('requireAdmin sin ctx autenticado → 401', async () => {
     const a = Fastify();
     await a.register(platformPlugin, { servicio: 's', jwksUrl: jwks.url, rutasPublicas: ['/p'] });
-    a.get('/p', { preHandler: requireRole('admin') }, async () => 'x');
+    a.get('/p', { preHandler: requireAdmin() }, async () => 'x');
     expect((await a.inject('/p')).statusCode).toBe(401);
     await a.close();
   });

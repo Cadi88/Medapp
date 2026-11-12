@@ -16,9 +16,9 @@ export async function iniciarSesionSoloPassword(app: FastifyInstance, email: str
   return mezclarCookies('', r);
 }
 
-/** Alta de miembro admin con TOTP activo y su token de tenant. */
+/** Alta de un médico con permiso admin, con TOTP activo y su token de tenant. */
 export async function crearAdminConToken(app: FastifyInstance, c: Consultorio, email: string): Promise<{ id: string; token: string }> {
-  const id = await agregarMiembro(app, c, email, 'admin');
+  const id = await agregarMiembro(app, c, email, 'medico', true);
   const { cookie } = await activarTotpEIniciarSesion(app, email);
   const r = await pedirToken(app, cookie, c.tenantId);
   if (r.statusCode !== 200) throw new Error(`token fallo: ${r.statusCode}`);

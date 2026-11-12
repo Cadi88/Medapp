@@ -84,6 +84,18 @@ describe('PUT /medicos/:usuarioId/perfil', () => {
     expect(r.json().code).toBe('PROHIBIDO');
   });
 
+  test('el fundador (médico + admin) edita su propio perfil y el de otro médico', async () => {
+    expect((await putPerfil(c.adminToken, c.adminId, perfil)).statusCode).toBe(200);
+    expect((await putPerfil(c.adminToken, medicoId, perfil)).statusCode).toBe(200);
+  });
+
+  test('recepción con permiso admin edita el perfil de un médico, pero no el de otra recepción → 404', async () => {
+    await agregarMiembro(app, c, 'recep-admin@perfil.mx', 'recepcion', true);
+    const token = await tokenMfa('recep-admin@perfil.mx', c.tenantId);
+    expect((await putPerfil(token, medicoId, perfil)).statusCode).toBe(200);
+    expect((await putPerfil(token, recepcionId, perfil)).statusCode).toBe(404);
+  });
+
   test('recepción → 403', async () => {
     const token = (await pedirToken(app, await iniciarSesion(app, 'recep@perfil.mx'), c.tenantId)).json().token;
     expect((await putPerfil(token, medicoId, perfil)).statusCode).toBe(403);
@@ -113,8 +125,8 @@ describe('PUT /medicos/:usuarioId/perfil', () => {
     expect(await qt(otro.tenantId, 'select 1 from perfil_medico where usuario_id = $1', [ajeno])).toHaveLength(0);
   });
 
-  test('un miembro que no es médico (admin, recepción) o un id desconocido → 404', async () => {
-    for (const id of [c.adminId, recepcionId, '0190aaaa-0000-7000-8000-000000000099']) {
+  test('un miembro que no es médico (recepción) o un id desconocido → 404', async () => {
+    for (const id of [recepcionId, '0190aaaa-0000-7000-8000-000000000099']) {
       const r = await putPerfil(c.adminToken, id, perfil);
       expect(r.statusCode).toBe(404);
     }

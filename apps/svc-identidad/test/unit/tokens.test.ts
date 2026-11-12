@@ -6,7 +6,8 @@ import { TOKEN_TTL_SEG, firmarTokenTenant } from '../../src/tokens.js';
 const claims = {
   sub: '0190aaaa-0000-7000-8000-000000000001',
   tid: '0190aaaa-0000-7000-8000-000000000002',
-  rol: 'admin',
+  rol: 'medico',
+  admin: true,
   mfa: true,
 } as const;
 
@@ -53,10 +54,12 @@ describe('firmarTokenTenant', () => {
     expect(decodeProtectedHeader(token).kid).toBeUndefined();
   });
 
-  test('claims invalidos (sub no UUID, rol desconocido, mfa ausente) no se firman', async () => {
+  test('claims invalidos (sub no UUID, rol desconocido o admin, admin o mfa ausentes) no se firman', async () => {
     await expect(firmarTokenTenant({ ...claims, sub: 'x' }, privada)).rejects.toThrow();
     await expect(firmarTokenTenant({ ...claims, rol: 'root' } as never, privada)).rejects.toThrow();
-    await expect(firmarTokenTenant({ sub: claims.sub, tid: claims.tid, rol: 'admin' } as never, privada)).rejects.toThrow();
+    await expect(firmarTokenTenant({ ...claims, rol: 'admin' } as never, privada)).rejects.toThrow();
+    await expect(firmarTokenTenant({ sub: claims.sub, tid: claims.tid, rol: 'medico', admin: true } as never, privada)).rejects.toThrow();
+    await expect(firmarTokenTenant({ sub: claims.sub, tid: claims.tid, rol: 'medico', mfa: true } as never, privada)).rejects.toThrow();
   });
 
   test('claims extra no se cuelan al token', async () => {

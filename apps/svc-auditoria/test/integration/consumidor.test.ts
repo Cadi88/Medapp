@@ -50,7 +50,7 @@ describe('consumidor de auditoría', () => {
     await publicar(e);
     await publicar(e); // duplicado: mismo event_id, sin Nats-Msg-Id → ambos entran al stream
     // Un evento posterior del mismo tenant sirve de barrera: cuando está, los dos anteriores ya se procesaron.
-    const barrera = UsuarioVinculado.create({ tenantId: T, actorId: null, traceId: 'trace-2', data: { usuarioId: uuidv7(), rol: 'medico' } });
+    const barrera = UsuarioVinculado.create({ tenantId: T, actorId: null, traceId: 'trace-2', data: { usuarioId: uuidv7(), nombre: 'Ana', rol: 'medico', admin: false } });
     await publicar(barrera);
     const filas = await esperar(() => leer(env, T), (f) => f.length >= 2);
     expect(filas.map((f) => [f.accion, f.secuencia])).toEqual([

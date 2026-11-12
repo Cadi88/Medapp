@@ -5,7 +5,7 @@ import type { FastifyInstance } from 'fastify';
 import { afterAll, beforeAll, describe, expect, test } from 'vitest';
 import { buildGateway } from '../../src/server.js';
 
-const claims = { sub: '0198f2a0-0000-7000-8000-000000000001', tid: '0198f2a0-0000-7000-8000-0000000000aa', rol: 'admin', mfa: true };
+const claims = { sub: '0198f2a0-0000-7000-8000-000000000001', tid: '0198f2a0-0000-7000-8000-0000000000aa', rol: 'medico', admin: true, mfa: true };
 
 interface Destino {
   url: string;
@@ -106,7 +106,7 @@ describe('autenticación en el gateway', () => {
     for (const t of [
       await jwks.sign(claims, { otraLlave: true }),
       await jwks.sign(claims, { expiresIn: '-1m' }),
-      await jwks.sign({ sub: claims.sub, rol: 'admin', mfa: true }),
+      await jwks.sign({ sub: claims.sub, rol: 'medico', admin: true, mfa: true }),
     ]) {
       const r = await gw.inject({ url: '/api/auditoria/eventos', headers: auth(t) });
       expect(r.statusCode).toBe(401);

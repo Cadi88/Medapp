@@ -5,6 +5,7 @@ const base = {
   nombreConsultorio: 'Consultorio Uno',
   slug: 'consultorio-uno',
   zonaHoraria: 'America/Mexico_City',
+  esMedico: true,
   admin: { nombre: 'Ana Pérez', email: 'Ana@Ejemplo.MX', password: 'una-clave-larga' },
 };
 const con = (cambio: Record<string, unknown>) => ({ ...base, ...cambio });
@@ -14,6 +15,7 @@ describe('registroSchema', () => {
     const r = registroSchema.parse(base);
     expect(r.admin.email).toBe('ana@ejemplo.mx');
     expect(r.slug).toBe('consultorio-uno');
+    expect(r.esMedico).toBe(true);
   });
 
   test.each([
@@ -29,6 +31,8 @@ describe('registroSchema', () => {
     ['email inválido', con({ admin: { ...base.admin, email: 'no-es-email' } })],
     ['nombre de admin vacío', con({ admin: { ...base.admin, nombre: '' } })],
     ['sin admin', con({ admin: undefined })],
+    ['sin esMedico', con({ esMedico: undefined })],
+    ['esMedico no booleano', con({ esMedico: 'si' })],
   ])('%s se rechaza', (_n, cuerpo) => {
     expect(registroSchema.safeParse(cuerpo).success).toBe(false);
   });

@@ -1,9 +1,9 @@
 import { MedicoActualizado } from '@consultorio/contracts';
-import { AppError, enqueueEvent, requireRole, withTenant } from '@consultorio/platform';
+import { AppError, enqueueEvent, withTenant } from '@consultorio/platform';
 import type { FastifyPluginAsync } from 'fastify';
 import type pg from 'pg';
 import { exigirActor } from '../actor.js';
-import { puedeEditarPerfil } from '../reglas.js';
+import { puedeEditarPerfil } from '../dominio/reglas.js';
 import { perfilSchema, uuidSchema } from '../validadores.js';
 
 export interface PerfilRoutesOptions {
@@ -11,15 +11,15 @@ export interface PerfilRoutesOptions {
 }
 
 export const perfilRoutes: FastifyPluginAsync<PerfilRoutesOptions> = async (app, { pool }) => {
-  app.put('/medicos/:usuarioId/perfil', { preHandler: requireRole('admin', 'medico') }, async (req) => {
+  app.put('/medicos/:usuarioId/perfil', async (req) => {
     const objetivoId = uuidSchema.parse((req.params as { usuarioId?: unknown }).usuarioId);
     const { tenantId, usuarioId: actorId, traceId } = req.ctx;
     const p = perfilSchema.parse(req.body);
 
     await withTenant(pool, tenantId, async (tx) => {
-      // Permiso con el rol vigente en la BD (no el del token).
-      const rol = await exigirActor(tx, { tenantId, usuarioId: actorId }, ['admin', 'medico']);
-      if (!puedeEditarPerfil({ rol, solicitanteId: actorId, objetivoId })) throw new AppError('PROHIBIDO', 'Acceso prohibido', 403);
+      // Permiso con el rol y el admin vigentes en la BD (no los del token): admin, o el propio médico.
+      const actor = await exigirActor(tx, { tenantId, usuarioId: actorId });
+      if (!puedeEditarPerfil({ ...actor, solicitanteId: actorId, objetivoId })) throw new AppError('PROHIBIDO', 'Acceso prohibido', 403);
       // RLS: solo se ven membresías de este tenant, así un médico de otro consultorio es 404.
       const m = await tx.query<{ rol: string }>('SELECT rol FROM membresia WHERE tenant_id = $1 AND usuario_id = $2', [tenantId, objetivoId]);
       if (m.rows[0]?.rol !== 'medico') throw new AppError('NO_ENCONTRADO', 'Médico no encontrado', 404);

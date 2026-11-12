@@ -42,25 +42,47 @@ describe('POST /miembros', () => {
   });
 
   test('crea usuario nuevo, membresía y emite usuario.vinculado con actor y trace_id', async () => {
-    const r = await invitarMiembro(app, c.adminToken, { email: 'Nueva@Miembros.MX', nombre: 'Nueva', rol: 'recepcion', passwordTemporal: PASSWORD });
+    const r = await invitarMiembro(app, c.adminToken, { email: 'Nueva@Miembros.MX', nombre: 'Nueva', rol: 'recepcion', admin: false, passwordTemporal: PASSWORD });
     expect(r.statusCode).toBe(201);
     const { usuarioId } = r.json<{ usuarioId: string }>();
     expect(usuarioId).toMatch(UUIDV7);
-    expect(await q('select rol from membresia where tenant_id = $1 and usuario_id = $2', [c.tenantId, usuarioId])).toEqual([{ rol: 'recepcion' }]);
+    expect(await q('select rol, admin from membresia where tenant_id = $1 and usuario_id = $2', [c.tenantId, usuarioId])).toEqual([
+      { rol: 'recepcion', admin: false },
+    ]);
     const [u] = await q('select email, name from "user" where id = $1', [usuarioId]);
     expect(u).toEqual({ email: 'nueva@miembros.mx', name: 'Nueva' });
     const ev = (await eventos('usuario.vinculado', c.tenantId)).find((e) => e.data.usuarioId === usuarioId);
-    expect(ev).toMatchObject({ actor_id: c.adminId, trace_id: r.headers['x-trace-id'], data: { usuarioId, rol: 'recepcion' } });
+    expect(ev).toMatchObject({ actor_id: c.adminId, trace_id: r.headers['x-trace-id'], data: { usuarioId, nombre: 'Nueva', rol: 'recepcion', admin: false } });
+    expect(ev).toMatchObject({ version: 2 });
     // La persona puede iniciar sesión con la contraseña temporal y obtener token.
     const cookie = await iniciarSesion(app, 'nueva@miembros.mx');
     expect((await pedirToken(app, cookie, c.tenantId)).statusCode).toBe(200);
+  });
+
+  test('recepción no admin no puede dar de alta miembros → 403', async () => {
+    const email = 'recep-sin-admin@miembros.mx';
+    await agregarMiembro(app, c, email, 'recepcion');
+    const token = (await pedirToken(app, await iniciarSesion(app, email), c.tenantId)).json().token;
+    const r = await invitarMiembro(app, token, { email: 'nadie@miembros.mx', nombre: 'N', rol: 'recepcion', admin: false, passwordTemporal: PASSWORD });
+    expect(r.statusCode).toBe(403);
+    expect(r.json().code).toBe('PROHIBIDO');
+  });
+
+  test('recepción con permiso admin sí puede dar de alta un miembro con admin', async () => {
+    const email = 'recep-admin@miembros.mx';
+    await agregarMiembro(app, c, email, 'recepcion', true);
+    const { cookie } = await activarTotpEIniciarSesion(app, email);
+    const token = (await pedirToken(app, cookie, c.tenantId)).json().token;
+    const r = await invitarMiembro(app, token, { email: 'medico-admin@miembros.mx', nombre: 'M', rol: 'medico', admin: true, passwordTemporal: PASSWORD });
+    expect(r.statusCode).toBe(201);
+    expect(r.json()).toMatchObject({ rol: 'medico', admin: true });
   });
 
   test('recepción no puede invitar miembros → 403', async () => {
     await agregarMiembro(app, c, 'recep@miembros.mx', 'recepcion');
     const cookie = await iniciarSesion(app, 'recep@miembros.mx');
     const token = (await pedirToken(app, cookie, c.tenantId)).json().token;
-    const r = await invitarMiembro(app, token, { email: 'x@miembros.mx', nombre: 'X', rol: 'recepcion', passwordTemporal: PASSWORD });
+    const r = await invitarMiembro(app, token, { email: 'x@miembros.mx', nombre: 'X', rol: 'recepcion', admin: false, passwordTemporal: PASSWORD });
     expect(r.statusCode).toBe(403);
     expect(r.json().code).toBe('PROHIBIDO');
     expect(await q(`select 1 from "user" where email = 'x@miembros.mx'`)).toHaveLength(0);
@@ -74,7 +96,7 @@ describe('POST /miembros', () => {
   test('ya es miembro → 409 CONFLICTO y no cambia nada', async () => {
     await agregarMiembro(app, c, 'doble@miembros.mx', 'recepcion');
     const antes = await q('select count(*)::int n from outbox');
-    const r = await invitarMiembro(app, c.adminToken, { email: 'doble@miembros.mx', nombre: 'Doble', rol: 'medico', passwordTemporal: PASSWORD });
+    const r = await invitarMiembro(app, c.adminToken, { email: 'doble@miembros.mx', nombre: 'Doble', rol: 'medico', admin: false, passwordTemporal: PASSWORD });
     expect(r.statusCode).toBe(409);
     expect(r.json().code).toBe('CONFLICTO');
     expect(await q('select count(*)::int n from outbox')).toEqual(antes);
@@ -85,7 +107,7 @@ describe('POST /miembros', () => {
     const otro = await crearConsultorio(app, 'miembros-otro');
     const [antes] = await q(`select u.id, a.password from "user" u join account a on a."userId" = u.id where u.email = $1`, [otro.adminEmail]);
     const usuariosAntes = (await q('select count(*)::int n from "user"'))[0].n;
-    const r = await invitarMiembro(app, c.adminToken, { email: otro.adminEmail, nombre: 'Otro Nombre', rol: 'medico', passwordTemporal: 'otra-temporal-999' });
+    const r = await invitarMiembro(app, c.adminToken, { email: otro.adminEmail, nombre: 'Otro Nombre', rol: 'medico', admin: false, passwordTemporal: 'otra-temporal-999' });
     expect(r.statusCode).toBe(201);
     expect(r.json().usuarioId).toBe(antes.id);
     expect((await q('select count(*)::int n from "user"'))[0].n).toBe(usuariosAntes);
@@ -102,12 +124,14 @@ describe('POST /miembros', () => {
 
   test.each([
     ['rol desconocido', { rol: 'root' }],
+    ['admin como rol (modelo anterior)', { rol: 'admin' }],
+    ['sin admin', { admin: undefined }],
     ['contraseña corta', { passwordTemporal: '123' }],
     ['email inválido', { email: 'nope' }],
     ['nombre vacío', { nombre: '' }],
     ['campo extra', { extra: 1 }],
   ])('%s → 400 VALIDACION y no crea nada', async (_n, cambio) => {
-    const base = { email: 'valido@miembros.mx', nombre: 'Valido', rol: 'recepcion', passwordTemporal: PASSWORD };
+    const base = { email: 'valido@miembros.mx', nombre: 'Valido', rol: 'recepcion', admin: false, passwordTemporal: PASSWORD };
     const r = await invitarMiembro(app, c.adminToken, { ...base, ...cambio });
     expect(r.statusCode).toBe(400);
     expect(r.json().code).toBe('VALIDACION');
@@ -119,7 +143,7 @@ describe('POST /miembros', () => {
     await env.migrator.query(`create or replace function _falla() returns trigger language plpgsql as $$ begin raise exception 'boom interno'; end $$`);
     await env.migrator.query('create trigger _falla_membresia before insert on membresia for each row execute function _falla()');
     try {
-      const r = await invitarMiembro(app, c.adminToken, { email: 'fallo@miembros.mx', nombre: 'Fallo', rol: 'recepcion', passwordTemporal: PASSWORD });
+      const r = await invitarMiembro(app, c.adminToken, { email: 'fallo@miembros.mx', nombre: 'Fallo', rol: 'recepcion', admin: false, passwordTemporal: PASSWORD });
       expect(r.statusCode).toBe(500);
       expect(r.json()).toEqual({ code: 'INTERNO', message: 'Error interno' });
       expect(await q(`select 1 from "user" where email = 'fallo@miembros.mx'`)).toHaveLength(0);
@@ -134,7 +158,7 @@ describe('POST /miembros', () => {
     await env.migrator.query(`create or replace function _falla() returns trigger language plpgsql as $$ begin raise exception 'boom interno'; end $$`);
     await env.migrator.query('create trigger _falla_membresia before insert on membresia for each row execute function _falla()');
     try {
-      const r = await invitarMiembro(app, c.adminToken, { email: otro.adminEmail, nombre: 'X', rol: 'recepcion', passwordTemporal: PASSWORD });
+      const r = await invitarMiembro(app, c.adminToken, { email: otro.adminEmail, nombre: 'X', rol: 'recepcion', admin: false, passwordTemporal: PASSWORD });
       expect(r.statusCode).toBe(500);
     } finally {
       await env.migrator.query('drop trigger _falla_membresia on membresia');
@@ -144,7 +168,7 @@ describe('POST /miembros', () => {
 
   test('dos invitaciones simultáneas del mismo email nuevo → un solo usuario y una sola membresía', async () => {
     const email = 'carrera@miembros.mx';
-    const cuerpo = { email, nombre: 'Carrera', rol: 'recepcion', passwordTemporal: PASSWORD };
+    const cuerpo = { email, nombre: 'Carrera', rol: 'recepcion', admin: false, passwordTemporal: PASSWORD };
     const [a, b] = await Promise.all([invitarMiembro(app, c.adminToken, cuerpo), invitarMiembro(app, c.adminToken, cuerpo)]);
     expect([a.statusCode, b.statusCode].sort()).toEqual([201, 409]);
     expect(await q('select 1 from "user" where email = $1', [email])).toHaveLength(1);
@@ -186,8 +210,14 @@ describe('DELETE /miembros/:usuarioId', () => {
     expect(await q("select 1 from outbox where type = 'usuario.desvinculado' and payload->'data'->>'usuarioId' = $1", [c.adminId])).toHaveLength(0);
   });
 
+  test('el último admin no se elimina aunque haya otros miembros sin admin → 409', async () => {
+    const solo = await crearConsultorio(app, 'miembros-solo-admin');
+    await agregarMiembro(app, solo, 'medico@solo.mx', 'medico');
+    expect((await borrar(solo.adminToken, solo.adminId)).statusCode).toBe(409);
+  });
+
   test('con dos admins uno puede salir', async () => {
-    const id = await agregarMiembro(app, c, 'admin2@del.mx', 'admin');
+    const id = await agregarMiembro(app, c, 'admin2@del.mx', 'recepcion', true);
     expect((await borrar(c.adminToken, id)).statusCode).toBe(204);
   });
 
@@ -218,13 +248,13 @@ describe('DELETE /miembros/:usuarioId', () => {
     for (let i = 0; i < 3; i++) {
       const par = await crearConsultorio(app, `miembros-carrera-${i}`);
       const emailB = `adminb-${i}@del.mx`;
-      const idB = await agregarMiembro(app, par, emailB, 'admin');
+      const idB = await agregarMiembro(app, par, emailB, 'medico', true);
       const { cookie } = await activarTotpEIniciarSesion(app, emailB);
       const tokenB = (await pedirToken(app, cookie, par.tenantId)).json().token;
       const [a, b] = await Promise.all([borrar(par.adminToken, idB), borrar(tokenB, par.adminId)]);
       // La segunda baja ya no tiene actor vigente (fue removido por la primera): 403.
       expect([a.statusCode, b.statusCode].sort()).toEqual([204, 403]);
-      const admins = await q("select 1 from membresia where tenant_id = $1 and rol = 'admin'", [par.tenantId]);
+      const admins = await q("select 1 from membresia where tenant_id = $1 and admin = true", [par.tenantId]);
       expect(admins).toHaveLength(1);
     }
   });
@@ -234,22 +264,22 @@ describe('actor removido con token aún vigente', () => {
   test('no puede volver a vincularse, ni eliminar admins, ni editar datos', async () => {
     const c = await crearConsultorio(app, 'removido');
     const b = await crearAdminConToken(app, c, 'adminb@removido.mx');
-    const idC = await agregarMiembro(app, c, 'adminc@removido.mx', 'admin');
+    const idC = await agregarMiembro(app, c, 'adminc@removido.mx', 'medico', true);
     expect((await borrar(c.adminToken, b.id)).statusCode).toBe(204);
 
     const antes = (await q('select count(*)::int n from outbox'))[0].n;
-    const re = await invitarMiembro(app, b.token, { email: 'adminb@removido.mx', nombre: 'B', rol: 'admin', passwordTemporal: PASSWORD });
+    const re = await invitarMiembro(app, b.token, { email: 'adminb@removido.mx', nombre: 'B', rol: 'medico', admin: true, passwordTemporal: PASSWORD });
     expect(re.statusCode).toBe(403);
     expect(re.json().code).toBe('PROHIBIDO');
     expect(await q('select 1 from membresia where tenant_id = $1 and usuario_id = $2', [c.tenantId, b.id])).toHaveLength(0);
 
-    const nuevo = await invitarMiembro(app, b.token, { email: 'cuentanueva@removido.mx', nombre: 'N', rol: 'recepcion', passwordTemporal: PASSWORD });
+    const nuevo = await invitarMiembro(app, b.token, { email: 'cuentanueva@removido.mx', nombre: 'N', rol: 'recepcion', admin: false, passwordTemporal: PASSWORD });
     expect(nuevo.statusCode).toBe(403);
     expect(await q("select 1 from \"user\" where email = 'cuentanueva@removido.mx'")).toHaveLength(0);
 
     expect((await borrar(b.token, idC)).statusCode).toBe(403);
     expect((await borrar(b.token, c.adminId)).statusCode).toBe(403);
-    expect(await q("select 1 from membresia where tenant_id = $1 and rol = 'admin'", [c.tenantId])).toHaveLength(2);
+    expect(await q("select 1 from membresia where tenant_id = $1 and admin = true", [c.tenantId])).toHaveLength(2);
 
     const fiscal = await app.inject({
       method: 'PUT',

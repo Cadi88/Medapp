@@ -1,11 +1,11 @@
-import { UsuarioDesvinculado, UsuarioVinculado, type Rol } from '@consultorio/contracts';
-import { AppError, enqueueEvent, requireRole, withTenant } from '@consultorio/platform';
+import { UsuarioDesvinculado, UsuarioVinculado } from '@consultorio/contracts';
+import { AppError, enqueueEvent, requireAdmin, withTenant } from '@consultorio/platform';
 import type { FastifyPluginAsync } from 'fastify';
 import type pg from 'pg';
 import type { Auth } from '../auth.js';
-import { exigirActor, exigirRolVigente } from '../actor.js';
+import { exigirActor } from '../actor.js';
 import { isUniqueViolation } from '../db/errors.js';
-import { puedeEliminarMiembro } from '../reglas.js';
+import { puedeQuitarAdmin } from '../dominio/reglas.js';
 import { miembroSchema, uuidSchema } from '../validadores.js';
 
 export interface MiembrosRoutesOptions {
@@ -19,12 +19,12 @@ export const miembrosRoutes: FastifyPluginAsync<MiembrosRoutesOptions> = async (
   const idPorEmail = async (email: string): Promise<string | undefined> =>
     (await pool.query<{ id: string }>('SELECT id FROM "user" WHERE email = $1', [email])).rows[0]?.id;
 
-  app.post('/miembros', { preHandler: requireRole('admin') }, async (req, reply) => {
+  app.post('/miembros', { preHandler: requireAdmin() }, async (req, reply) => {
     const input = miembroSchema.parse(req.body);
     const { tenantId, usuarioId: actorId, traceId } = req.ctx;
 
     // Antes de crear cuentas: el actor debe seguir siendo admin en la BD (el token vale hasta 15 min).
-    await withTenant(pool, tenantId, (tx) => exigirActor(tx, { tenantId, usuarioId: actorId }, ['admin']));
+    await withTenant(pool, tenantId, (tx) => exigirActor(tx, { tenantId, usuarioId: actorId }, { admin: true }));
 
     // Usuario existente (de este u otro consultorio): se vincula tal cual, sin tocar su cuenta ni contraseña.
     let usuarioId = await idPorEmail(input.email);
@@ -44,9 +44,22 @@ export const miembrosRoutes: FastifyPluginAsync<MiembrosRoutesOptions> = async (
     const vinculado = usuarioId;
     try {
       await withTenant(pool, tenantId, async (tx) => {
-        await exigirActor(tx, { tenantId, usuarioId: actorId }, ['admin']);
-        await tx.query('INSERT INTO membresia (tenant_id, usuario_id, rol) VALUES ($1, $2, $3)', [tenantId, vinculado, input.rol]);
-        await enqueueEvent(tx, UsuarioVinculado.create({ tenantId, actorId, traceId, data: { usuarioId: vinculado, rol: input.rol } }));
+        await exigirActor(tx, { tenantId, usuarioId: actorId }, { admin: true });
+        await tx.query('INSERT INTO membresia (tenant_id, usuario_id, rol, admin) VALUES ($1, $2, $3, $4)', [
+          tenantId,
+          vinculado,
+          input.rol,
+          input.admin,
+        ]);
+        await enqueueEvent(
+          tx,
+          UsuarioVinculado.create({
+            tenantId,
+            actorId,
+            traceId,
+            data: { usuarioId: vinculado, nombre: input.nombre, rol: input.rol, admin: input.admin },
+          }),
+        );
       });
     } catch (err) {
       // Solo se compensa (borra) a un usuario que esta petición acaba de crear.
@@ -59,26 +72,26 @@ export const miembrosRoutes: FastifyPluginAsync<MiembrosRoutesOptions> = async (
       }
       throw isUniqueViolation(err) ? yaMiembro() : err;
     }
-    return reply.code(201).send({ usuarioId: vinculado, rol: input.rol });
+    return reply.code(201).send({ usuarioId: vinculado, rol: input.rol, admin: input.admin });
   });
 
-  app.delete('/miembros/:usuarioId', { preHandler: requireRole('admin') }, async (req, reply) => {
+  app.delete('/miembros/:usuarioId', { preHandler: requireAdmin() }, async (req, reply) => {
     const usuarioId = uuidSchema.parse((req.params as { usuarioId?: unknown }).usuarioId);
     const { tenantId, usuarioId: actorId, traceId } = req.ctx;
 
     await withTenant(pool, tenantId, async (tx) => {
-      // Se bloquean las membresías de admin del tenant antes de contar: dos bajas concurrentes se
+      // Se bloquean las membresías con admin del tenant antes de contar: dos bajas concurrentes se
       // serializan y la segunda ve el resultado de la primera (nunca queda el tenant sin admin).
       const admins = await tx.query(
-        'SELECT usuario_id FROM membresia WHERE tenant_id = $1 AND rol = $2 ORDER BY usuario_id FOR UPDATE',
-        [tenantId, 'admin'],
+        'SELECT usuario_id FROM membresia WHERE tenant_id = $1 AND admin = true ORDER BY usuario_id FOR UPDATE',
+        [tenantId],
       );
       // El actor debe seguir siendo admin: sus filas están bloqueadas arriba (FOR UPDATE), así que no puede cambiar.
-      exigirRolVigente(admins.rows.some((a: { usuario_id: string }) => a.usuario_id === actorId) ? 'admin' : undefined, ['admin']);
-      const objetivo = await tx.query<{ rol: Rol }>('SELECT rol FROM membresia WHERE tenant_id = $1 AND usuario_id = $2', [tenantId, usuarioId]);
-      const rolObjetivo = objetivo.rows[0]?.rol;
-      if (!rolObjetivo) throw new AppError('NO_ENCONTRADO', 'Miembro no encontrado', 404);
-      if (!puedeEliminarMiembro({ rolObjetivo, admins: admins.rowCount ?? 0 })) {
+      if (!admins.rows.some((a: { usuario_id: string }) => a.usuario_id === actorId)) throw new AppError('PROHIBIDO', 'Acceso prohibido', 403);
+      const objetivo = await tx.query<{ admin: boolean }>('SELECT admin FROM membresia WHERE tenant_id = $1 AND usuario_id = $2', [tenantId, usuarioId]);
+      const esAdminObjetivo = objetivo.rows[0]?.admin;
+      if (esAdminObjetivo === undefined) throw new AppError('NO_ENCONTRADO', 'Miembro no encontrado', 404);
+      if (!puedeQuitarAdmin({ esAdminObjetivo, admins: admins.rowCount ?? 0 })) {
         throw new AppError('CONFLICTO', 'No se puede eliminar al último administrador', 409);
       }
       // perfil_medico referencia a la membresía (FK sin cascada).

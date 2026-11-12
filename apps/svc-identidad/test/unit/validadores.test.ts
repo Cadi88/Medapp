@@ -48,12 +48,15 @@ describe('perfil medico', () => {
 });
 
 describe('miembro y cuerpo de sesion', () => {
-  const base = { email: 'Nuevo@Ejemplo.MX', nombre: 'Nuevo', rol: 'recepcion', passwordTemporal: 'clave-temporal-123' };
+  const base = { email: 'Nuevo@Ejemplo.MX', nombre: 'Nuevo', rol: 'recepcion', admin: false, passwordTemporal: 'clave-temporal-123' };
   test('normaliza el email a minusculas', () => {
     expect(miembroSchema.parse(base).email).toBe('nuevo@ejemplo.mx');
   });
   test.each([
     ['rol desconocido', { rol: 'root' }],
+    ['admin como rol (modelo anterior)', { rol: 'admin' }],
+    ['sin admin', { admin: undefined }],
+    ['admin no booleano', { admin: 'si' }],
     ['password corta', { passwordTemporal: '123' }],
     ['email invalido', { email: 'nope' }],
     ['nombre vacio', { nombre: '' }],

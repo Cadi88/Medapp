@@ -27,6 +27,7 @@ export default tseslint.config(
       'import/resolver': { typescript: { project: ['tsconfig.base.json'], alwaysTryTypes: false } },
     },
     rules: {
+      '@typescript-eslint/no-explicit-any': 'error',
       'import/no-restricted-paths': ['error', { zones: zonas }],
       ...(patronesApps.length
         ? {
@@ -36,6 +37,29 @@ export default tseslint.config(
             ],
           }
         : {}),
+    },
+  },
+  // Capa de dominio: funciones puras, sin infraestructura. (Se repiten los patrones de apps/*: la regla se reemplaza, no se mezcla.)
+  {
+    files: ['apps/*/src/dominio/**/*.ts'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          paths: [
+            { name: 'pg', message: 'El dominio es puro: el acceso a datos va en src/datos.' },
+            { name: 'fastify', message: 'El dominio es puro: HTTP va en src/rutas.' },
+            { name: '@consultorio/platform', message: 'El dominio no depende de la plataforma; recibe sus datos como parámetros.' },
+          ],
+          patterns: [
+            { group: ['pg/*'], message: 'El dominio es puro: el acceso a datos va en src/datos.' },
+            { group: ['fastify/*', '@fastify/*'], message: 'El dominio es puro: HTTP va en src/rutas.' },
+            { group: ['@nats-io/*'], message: 'El dominio es puro: la mensajería no se importa aquí.' },
+            { group: ['@consultorio/platform/*'], message: 'El dominio no depende de la plataforma; recibe sus datos como parámetros.' },
+            ...(patronesApps.length ? [{ group: patronesApps, message: 'apps/* no se importan por nombre de paquete; extraer a packages/*.' }] : []),
+          ],
+        },
+      ],
     },
   },
 );

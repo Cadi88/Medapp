@@ -29,7 +29,7 @@ afterAll(async () => {
 beforeEach(() => limpiar(env.migrator));
 
 describe('POST /registro', () => {
-  test('crea tenant, admin, membresía y emite eventos', async () => {
+  test('crea tenant, fundador (médico + admin), membresía y emite eventos', async () => {
     const r = await post(registro('uno'));
     expect(r.statusCode).toBe(201);
     const { tenantId, usuarioId } = r.json();
@@ -43,15 +43,41 @@ describe('POST /registro', () => {
     expect(eventos.every((e) => e.tenant_id === tenantId)).toBe(true);
     expect(eventos[0].payload.data).toMatchObject({ tenantId, slug: 'uno', adminUsuarioId: usuarioId });
     expect(eventos[0].payload.trace_id).toBe(r.headers['x-trace-id']);
-    expect(eventos[1].payload.data).toEqual({ usuarioId, rol: 'admin' });
+    expect(eventos[1].payload.data).toEqual({ usuarioId, nombre: 'Admin Prueba', rol: 'medico', admin: true });
+    expect(eventos[1].payload).toMatchObject({ type: 'usuario.vinculado', version: 2 });
 
     const [t] = await q('select * from tenant where id = $1', [tenantId]);
     expect(t).toMatchObject({ nombre: 'Consultorio uno', slug: 'uno', zona_horaria: 'America/Mexico_City', plan: 'piloto', estado_suscripcion: 'piloto' });
-    const m = await q('select usuario_id, rol from membresia where tenant_id = $1', [tenantId]);
-    expect(m).toEqual([{ usuario_id: usuarioId, rol: 'admin' }]);
+    const m = await q('select usuario_id, rol, admin from membresia where tenant_id = $1', [tenantId]);
+    expect(m).toEqual([{ usuario_id: usuarioId, rol: 'medico', admin: true }]);
     const [u] = await q('select id, email, "twoFactorEnabled" from "user" where id = $1', [usuarioId]);
     expect(u.email).toBe('uno@ejemplo.mx');
     expect(u.twoFactorEnabled).toBeFalsy();
+  });
+
+  test('registro con esMedico=true crea membresía medico+admin y emite usuario.vinculado v2', async () => {
+    const r = await post(registro('medico-uno', undefined, { esMedico: true }));
+    const m = await q('select rol, admin from membresia where tenant_id = $1', [r.json().tenantId]);
+    expect(m).toEqual([{ rol: 'medico', admin: true }]);
+    const [ev] = await q("select payload from outbox where type = 'usuario.vinculado'");
+    expect(ev.payload).toMatchObject({ version: 2, data: { rol: 'medico', admin: true, nombre: 'Admin Prueba' } });
+  });
+
+  test('registro con esMedico=false crea membresía recepcion+admin', async () => {
+    const r = await post(registro('recep-uno', undefined, { esMedico: false }));
+    expect(r.statusCode).toBe(201);
+    const m = await q('select rol, admin from membresia where tenant_id = $1', [r.json().tenantId]);
+    expect(m).toEqual([{ rol: 'recepcion', admin: true }]);
+    const [ev] = await q("select payload from outbox where type = 'usuario.vinculado'");
+    expect(ev.payload.data).toMatchObject({ rol: 'recepcion', admin: true });
+  });
+
+  test('registro sin esMedico → 400 VALIDACION y no crea nada', async () => {
+    const r = await post({ ...registro('sin-medico'), esMedico: undefined });
+    expect(r.statusCode).toBe(400);
+    expect(r.json().code).toBe('VALIDACION');
+    expect(await q('select 1 from tenant')).toHaveLength(0);
+    expect(await q('select 1 from "user"')).toHaveLength(0);
   });
 
   test('normaliza el email a minúsculas y la contraseña queda hasheada', async () => {

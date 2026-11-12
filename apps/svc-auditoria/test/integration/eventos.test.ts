@@ -13,9 +13,10 @@ let app: FastifyInstance;
 const A = tenantId();
 const B = tenantId();
 
-const token = (tid: string, rol: 'admin' | 'medico' | 'recepcion') => jwks.sign({ sub: uuidv7(), tid, rol, mfa: true });
-const get = async (url: string, tid = A, rol: 'admin' | 'medico' | 'recepcion' = 'admin') =>
-  app.inject({ method: 'GET', url, headers: { authorization: `Bearer ${await token(tid, rol)}` } });
+type Perfil = { rol: 'medico' | 'recepcion'; admin: boolean };
+const token = (tid: string, p: Perfil) => jwks.sign({ sub: uuidv7(), tid, rol: p.rol, admin: p.admin, mfa: true });
+const get = async (url: string, tid = A, perfil: Perfil = { rol: 'medico', admin: true }) =>
+  app.inject({ method: 'GET', url, headers: { authorization: `Bearer ${await token(tid, perfil)}` } });
 
 beforeAll(async () => {
   env = await prepararBase();
@@ -50,12 +51,16 @@ describe('GET /eventos', () => {
     expect(e!.secuencia).toBe('5');
   });
 
-  test('exige rol admin → 403 para medico y recepcion', async () => {
+  test('exige permiso admin → 403 para medico y recepcion sin admin', async () => {
     for (const rol of ['medico', 'recepcion'] as const) {
-      const r = await get('/eventos', A, rol);
+      const r = await get('/eventos', A, { rol, admin: false });
       expect(r.statusCode).toBe(403);
       expect(r.json()).toMatchObject({ code: 'PROHIBIDO' });
     }
+  });
+
+  test('recepción con permiso admin sí puede leer', async () => {
+    expect((await get('/eventos', A, { rol: 'recepcion', admin: true })).statusCode).toBe(200);
   });
 
   test('sin token → 401', async () => {

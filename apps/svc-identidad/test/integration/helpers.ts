@@ -71,6 +71,7 @@ export const registro = (slug: string, email = `${slug}@ejemplo.mx`, extra: Reco
   nombreConsultorio: `Consultorio ${slug}`,
   slug,
   zonaHoraria: 'America/Mexico_City',
+  esMedico: true,
   admin: { nombre: 'Admin Prueba', email, password: 'clave-de-prueba-123' },
   ...extra,
 });
@@ -193,9 +194,15 @@ export async function crearConsultorio(app: FastifyInstance, slug: string): Prom
 export const invitarMiembro = (app: FastifyInstance, adminToken: string, cuerpo: Record<string, unknown>) =>
   app.inject({ method: 'POST', url: '/miembros', payload: cuerpo, headers: conToken(adminToken) });
 
-/** Invita a un miembro (password temporal = PASSWORD) y devuelve su id. */
-export async function agregarMiembro(app: FastifyInstance, c: Consultorio, email: string, rol: 'admin' | 'medico' | 'recepcion'): Promise<string> {
-  const r = await invitarMiembro(app, c.adminToken, { email, nombre: `Miembro ${rol}`, rol, passwordTemporal: PASSWORD });
+/** Invita a un miembro (password temporal = PASSWORD) y devuelve su id. `admin` concede además el permiso de administración. */
+export async function agregarMiembro(
+  app: FastifyInstance,
+  c: Consultorio,
+  email: string,
+  rol: 'medico' | 'recepcion',
+  admin = false,
+): Promise<string> {
+  const r = await invitarMiembro(app, c.adminToken, { email, nombre: `Miembro ${rol}`, rol, admin, passwordTemporal: PASSWORD });
   if (r.statusCode !== 201) throw new Error(`invitación falló: ${r.statusCode} ${r.body}`);
   return r.json<{ usuarioId: string }>().usuarioId;
 }

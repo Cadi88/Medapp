@@ -5,6 +5,7 @@ import type pg from 'pg';
 import { z } from 'zod';
 import type { Auth } from '../auth.js';
 import { isUniqueViolation } from '../db/errors.js';
+import { rolFundador } from '../dominio/reglas.js';
 
 const ZONAS = new Set(Intl.supportedValuesOf('timeZone'));
 
@@ -12,6 +13,8 @@ export const registroSchema = z.strictObject({
   nombreConsultorio: z.string().min(2).max(120),
   slug: z.string().regex(/^[a-z0-9-]{3,40}$/),
   zonaHoraria: z.string().refine((z) => ZONAS.has(z), 'zona horaria IANA inválida'),
+  /** El fundador siempre es admin; esto decide su rol de trabajo (médico o recepción). */
+  esMedico: z.boolean(),
   admin: z.strictObject({
     nombre: z.string().min(1).max(120),
     email: z.email().transform((e) => e.toLowerCase()),
@@ -32,7 +35,7 @@ export interface RegistroDeps {
   existeSlug(slug: string): Promise<boolean>;
   existeEmail(email: string): Promise<boolean>;
   crearUsuario(i: { nombre: string; email: string; password: string }): Promise<{ id: string }>;
-  /** Una sola transacción: tenant, membresía admin y eventos en el outbox. */
+  /** Una sola transacción: tenant, membresía del fundador (con admin) y eventos en el outbox. */
   crearTenant(plan: PlanTenant): Promise<void>;
   /** Compensación: elimina el usuario y sus filas dependientes (cuenta, sesiones, 2FA). */
   borrarUsuario(usuarioId: string): Promise<void>;
@@ -55,7 +58,10 @@ export function construirEventos(i: { tenantId: string; usuarioId: string; input
         adminUsuarioId: i.usuarioId,
       },
     }),
-    UsuarioVinculado.create({ ...base, data: { usuarioId: i.usuarioId, rol: 'admin' } }),
+    UsuarioVinculado.create({
+      ...base,
+      data: { usuarioId: i.usuarioId, nombre: i.input.admin.nombre, rol: rolFundador(i.input.esMedico), admin: true },
+    }),
   ];
 }
 
@@ -116,7 +122,11 @@ export function createRegistroDeps(pool: pg.Pool, auth: Pick<Auth, 'api'>, log: 
           plan.input.slug,
           plan.input.zonaHoraria,
         ]);
-        await tx.query("INSERT INTO membresia (tenant_id, usuario_id, rol) VALUES ($1, $2, 'admin')", [plan.tenantId, plan.usuarioId]);
+        await tx.query('INSERT INTO membresia (tenant_id, usuario_id, rol, admin) VALUES ($1, $2, $3, true)', [
+          plan.tenantId,
+          plan.usuarioId,
+          rolFundador(plan.input.esMedico),
+        ]);
         for (const e of plan.eventos) await enqueueEvent(tx, e);
       }),
     // Las FK de session/account/twoFactor son ON DELETE CASCADE.

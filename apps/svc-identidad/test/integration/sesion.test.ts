@@ -65,7 +65,7 @@ describe('GET /tenants/mios', () => {
     const cookie = await iniciarSesion(app, 'recepcion@sesion-uno.mx');
     const r = await app.inject({ method: 'GET', url: '/tenants/mios', headers: { cookie } });
     expect(r.statusCode).toBe(200);
-    expect(r.json()).toEqual([{ tenantId: t1.tenantId, nombre: 'Consultorio sesion-uno', slug: 'sesion-uno', rol: 'recepcion' }]);
+    expect(r.json()).toEqual([{ tenantId: t1.tenantId, nombre: 'Consultorio sesion-uno', slug: 'sesion-uno', rol: 'recepcion', admin: false }]);
   });
 
   test('un usuario en dos consultorios los ve ambos', async () => {
@@ -92,7 +92,7 @@ describe('POST /sesion/tenant', () => {
     expect(r.statusCode).toBe(401);
   });
 
-  test('admin sin MFA → 403 MFA_REQUERIDA', async () => {
+  test('fundador sin MFA → 403 MFA_REQUERIDA', async () => {
     await app.inject({ method: 'POST', url: '/registro', payload: registro('sin-mfa') });
     const cookie = await iniciarSesion(app, 'sin-mfa@ejemplo.mx');
     const tenantId = (await app.inject({ method: 'GET', url: '/tenants/mios', headers: { cookie } })).json()[0].tenantId;
@@ -102,6 +102,21 @@ describe('POST /sesion/tenant', () => {
     expect(JSON.stringify(r.json())).not.toMatch(/token/i);
   });
 
+  test('recepción con permiso admin sin MFA → 403 MFA_REQUERIDA; con MFA obtiene token admin', async () => {
+    const email = 'recep-admin@sesion-uno.mx';
+    await agregarMiembro(app, t1, email, 'recepcion', true);
+    const cookie = await iniciarSesion(app, email);
+    const r = await pedirToken(app, cookie, t1.tenantId);
+    expect(r.statusCode).toBe(403);
+    expect(r.json().code).toBe('MFA_REQUERIDA');
+    const jwks = createLocalJWKSet((await app.inject({ method: 'GET', url: '/.well-known/jwks.json' })).json());
+    const { cookie: conMfa } = await activarTotpEIniciarSesion(app, email);
+    const ok = await pedirToken(app, conMfa, t1.tenantId);
+    expect(ok.statusCode).toBe(200);
+    const { payload } = await jwtVerify(ok.json().token, jwks, { issuer: 'svc-identidad' });
+    expect(payload).toMatchObject({ rol: 'recepcion', admin: true, mfa: true });
+  });
+
   test('médico sin MFA → 403 MFA_REQUERIDA', async () => {
     const cookie = await iniciarSesion(app, 'medico@sesion-uno.mx');
     const r = await pedirToken(app, cookie, t1.tenantId);
@@ -109,7 +124,7 @@ describe('POST /sesion/tenant', () => {
     expect(r.json().code).toBe('MFA_REQUERIDA');
   });
 
-  test('admin con TOTP activo obtiene token con claims correctos y exp 15 min', async () => {
+  test('token incluye admin y rol de trabajo (claims correctos y exp 15 min)', async () => {
     const jwksRes = await app.inject({ method: 'GET', url: '/.well-known/jwks.json' });
     const jwks = createLocalJWKSet(jwksRes.json());
     const cookie = await iniciarSesionConTotp(app, t1.adminEmail, t1.adminSecret);
@@ -118,7 +133,7 @@ describe('POST /sesion/tenant', () => {
     const { token } = r.json<{ token: string }>();
     const { payload, protectedHeader } = await jwtVerify(token, jwks, { issuer: 'svc-identidad', algorithms: ['EdDSA'] });
     expect(protectedHeader.kid).toBe('identidad-test');
-    expect(payload).toMatchObject({ sub: t1.adminId, tid: t1.tenantId, rol: 'admin', mfa: true });
+    expect(payload).toMatchObject({ sub: t1.adminId, tid: t1.tenantId, rol: 'medico', admin: true, mfa: true });
     expect(payload.exp! - payload.iat!).toBe(900);
   });
 
@@ -133,7 +148,7 @@ describe('POST /sesion/tenant', () => {
     const r = await pedirToken(app, cookie, t1.tenantId);
     expect(r.statusCode).toBe(200);
     const { payload } = await jwtVerify(r.json().token, jwks, { issuer: 'svc-identidad' });
-    expect(payload).toMatchObject({ sub: recepcionId, tid: t1.tenantId, rol: 'recepcion', mfa: false });
+    expect(payload).toMatchObject({ sub: recepcionId, tid: t1.tenantId, rol: 'recepcion', admin: false, mfa: false });
   });
 
   test('el rol del token es el de la membresía en ese tenant', async () => {
@@ -146,7 +161,7 @@ describe('POST /sesion/tenant', () => {
     const { cookie: conMfa } = await activarTotpEIniciarSesion(app, 'dual@sesion-uno.mx');
     const ok = await pedirToken(app, conMfa, t2.tenantId);
     const { payload } = await jwtVerify(ok.json().token, jwks, { issuer: 'svc-identidad' });
-    expect(payload).toMatchObject({ tid: t2.tenantId, rol: 'medico', mfa: true });
+    expect(payload).toMatchObject({ tid: t2.tenantId, rol: 'medico', admin: false, mfa: true });
   });
 
   test('usuario de otro consultorio → 403 PROHIBIDO', async () => {
@@ -206,7 +221,7 @@ describe('sesiones y alta de MFA', () => {
     const rB = await sesionTenant(bNueva, tenantId);
     expect(rB.statusCode).toBe(200);
     const jwks = createLocalJWKSet((await app.inject({ method: 'GET', url: '/.well-known/jwks.json' })).json());
-    expect((await jwtVerify(rB.json().token, jwks, { issuer: 'svc-identidad' })).payload).toMatchObject({ rol: 'admin', mfa: true });
+    expect((await jwtVerify(rB.json().token, jwks, { issuer: 'svc-identidad' })).payload).toMatchObject({ rol: 'medico', admin: true, mfa: true });
     // Un sign-in posterior con TOTP NO revoca las demás sesiones ya verificadas.
     const c2 = await iniciarSesionConTotp(app, 'mfa-revoca@ejemplo.mx', secret);
     expect((await sesionTenant(c2, tenantId)).statusCode).toBe(200);

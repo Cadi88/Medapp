@@ -12,7 +12,7 @@ export async function firmarTokenTenant(claims: TokenClaims, jwk: JWK, ahora: Da
   const c = tokenClaimsSchema.parse(claims);
   const iat = Math.floor(ahora.getTime() / 1000);
   const key = await importJWK(jwk, 'EdDSA');
-  return new SignJWT({ tid: c.tid, rol: c.rol, mfa: c.mfa })
+  return new SignJWT({ tid: c.tid, rol: c.rol, admin: c.admin, mfa: c.mfa })
     .setProtectedHeader({ alg: 'EdDSA', ...(jwk.kid ? { kid: jwk.kid } : {}) })
     .setSubject(c.sub)
     .setIssuer('svc-identidad')

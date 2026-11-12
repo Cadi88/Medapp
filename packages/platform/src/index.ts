@@ -13,7 +13,7 @@ export { consumeEvents, esErrorDeInfraestructura } from './events/consumer.js';
 export type { ConsumeEventsOptions, EventHandler } from './events/consumer.js';
 export { AppError, mapError } from './http/errors.js';
 export type { MappedError } from './http/errors.js';
-export { platformPlugin, requireRole } from './http/plugin.js';
+export { platformPlugin, requireAdmin, requireRole } from './http/plugin.js';
 export type { PlatformPluginOptions, RequestCtx } from './http/plugin.js';
 export { isPublicPath, sanitizeTraceId } from './http/public-routes.js';
 export { createLogger, initTelemetry, shutdownTelemetry } from './observability.js';

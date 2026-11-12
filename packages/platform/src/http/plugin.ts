@@ -10,6 +10,7 @@ export interface RequestCtx {
   tenantId: string;
   usuarioId: string;
   rol: Rol;
+  admin: boolean;
   mfa: boolean;
   traceId: string;
 }
@@ -47,7 +48,7 @@ async function autenticar(request: FastifyRequest, key: JWTVerifyGetKey): Promis
       maxTokenAge: '15m',
     });
     const c = tokenClaimsSchema.parse(payload);
-    return { tenantId: c.tid, usuarioId: c.sub, rol: c.rol, mfa: c.mfa };
+    return { tenantId: c.tid, usuarioId: c.sub, rol: c.rol, admin: c.admin, mfa: c.mfa };
   } catch (err) {
     // El motivo exacto nunca llega al cliente.
     request.log.debug({ err }, 'token rechazado');
@@ -105,5 +106,14 @@ export function requireRole(...roles: Rol[]): (request: { ctx?: Partial<RequestC
     const rol = request.ctx?.rol;
     if (!rol) throw noAutenticado();
     if (!roles.includes(rol)) throw new AppError('PROHIBIDO', 'Acceso prohibido', 403);
+  };
+}
+
+/** preHandler que exige el permiso `admin` del token; sin ctx → 401, `admin !== true` → 403 PROHIBIDO. */
+export function requireAdmin(): (request: { ctx?: Partial<RequestCtx> }) => Promise<void> {
+  return async (request) => {
+    const admin = request.ctx?.admin;
+    if (admin === undefined) throw noAutenticado();
+    if (admin !== true) throw new AppError('PROHIBIDO', 'Acceso prohibido', 403);
   };
 }

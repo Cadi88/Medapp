@@ -77,6 +77,7 @@ export function registro(slug: string) {
     nombreConsultorio: `Consultorio ${slug}`,
     slug,
     zonaHoraria: 'America/Mexico_City',
+    esMedico: true,
     admin: { nombre: 'Admin E2E', email: `admin@${slug}.mx`, password: PASSWORD },
   };
 }

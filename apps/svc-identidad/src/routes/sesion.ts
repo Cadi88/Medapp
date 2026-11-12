@@ -5,7 +5,7 @@ import type { JWK } from 'jose';
 import type pg from 'pg';
 import type { Auth } from '../auth.js';
 import { publicJwkFrom } from '../jwt-keys.js';
-import { decidirToken } from '../reglas.js';
+import { decidirToken } from '../dominio/reglas.js';
 import { requerirSesion } from '../session.js';
 import { firmarTokenTenant } from '../tokens.js';
 import { tenantBodySchema } from '../validadores.js';
@@ -21,6 +21,7 @@ interface Membresia {
   nombre: string;
   slug: string;
   rol: Rol;
+  admin: boolean;
 }
 
 /**
@@ -28,11 +29,11 @@ interface Membresia {
  * sesión de Better Auth, nunca con un id enviado por el cliente.
  */
 async function membresiasDe(pool: pg.Pool, usuarioId: string): Promise<Membresia[]> {
-  const r = await pool.query<{ tenant_id: string; nombre: string; slug: string; rol: Rol }>(
-    'SELECT tenant_id, nombre, slug, rol FROM fn_membresias_usuario($1)',
+  const r = await pool.query<{ tenant_id: string; nombre: string; slug: string; rol: Rol; admin: boolean }>(
+    'SELECT tenant_id, nombre, slug, rol, admin FROM fn_membresias_usuario($1)',
     [usuarioId],
   );
-  return r.rows.map((m) => ({ tenantId: m.tenant_id, nombre: m.nombre, slug: m.slug, rol: m.rol }));
+  return r.rows.map((m) => ({ tenantId: m.tenant_id, nombre: m.nombre, slug: m.slug, rol: m.rol, admin: m.admin }));
 }
 
 export const sesionRoutes: FastifyPluginAsync<SesionRoutesOptions> = async (app, { auth, pool, jwtPrivateJwk }) => {
@@ -54,9 +55,9 @@ export const sesionRoutes: FastifyPluginAsync<SesionRoutesOptions> = async (app,
     // Lectura fresca en cada llamada: un miembro removido no obtiene token nuevo.
     const m = (await membresiasDe(pool, s.usuarioId)).find((x) => x.tenantId === tenantId);
     if (!m) throw new AppError('PROHIBIDO', 'No eres miembro de este consultorio', 403);
-    const d = decidirToken({ rol: m.rol, twoFactorEnabled: s.twoFactorEnabled });
+    const d = decidirToken({ rol: m.rol, admin: m.admin, twoFactorEnabled: s.twoFactorEnabled });
     if (!d.ok) throw new AppError('MFA_REQUERIDA', 'Este rol requiere autenticación de dos factores', 403);
-    const token = await firmarTokenTenant({ sub: s.usuarioId, tid: tenantId, rol: m.rol, mfa: d.mfa }, jwtPrivateJwk);
+    const token = await firmarTokenTenant({ sub: s.usuarioId, tid: tenantId, rol: m.rol, admin: m.admin, mfa: d.mfa }, jwtPrivateJwk);
     return { token };
   });
 };
