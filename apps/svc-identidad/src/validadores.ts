@@ -35,3 +35,5 @@ export const miembroSchema = z.strictObject({
 export type MiembroInput = z.infer<typeof miembroSchema>;
 
 export const tenantBodySchema = z.strictObject({ tenantId: uuidSchema });
+
+export const passwordTemporalSchema = z.strictObject({ passwordTemporal: z.string().min(10).max(128) });

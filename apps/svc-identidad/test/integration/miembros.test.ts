@@ -54,9 +54,11 @@ describe('POST /miembros', () => {
     const ev = (await eventos('usuario.vinculado', c.tenantId)).find((e) => e.data.usuarioId === usuarioId);
     expect(ev).toMatchObject({ actor_id: c.adminId, trace_id: r.headers['x-trace-id'], data: { usuarioId, nombre: 'Nueva', rol: 'recepcion', admin: false } });
     expect(ev).toMatchObject({ version: 2 });
-    // La persona puede iniciar sesión con la contraseña temporal y obtener token.
+    // La persona inicia sesión con la contraseña temporal, pero debe cambiarla antes de obtener token.
     const cookie = await iniciarSesion(app, 'nueva@miembros.mx');
-    expect((await pedirToken(app, cookie, c.tenantId)).statusCode).toBe(200);
+    const t = await pedirToken(app, cookie, c.tenantId);
+    expect(t.statusCode).toBe(403);
+    expect(t.json()).toMatchObject({ code: 'PASSWORD_TEMPORAL' });
   });
 
   test('recepción no admin no puede dar de alta miembros → 403', async () => {

@@ -2,7 +2,7 @@ import { betterAuth, type BetterAuthOptions } from 'better-auth';
 import { APIError, createAuthMiddleware } from 'better-auth/api';
 import { twoFactor } from 'better-auth/plugins';
 import { uuidv7 } from 'uuidv7';
-import { hooksRevocarAlActivarMfa } from './revocar-sesiones.js';
+import { despuesDeCambiarPassword, hooksRevocarAlActivarMfa } from './revocar-sesiones.js';
 import { esAltaDirecta } from './sign-up-guard.js';
 
 export interface AuthOptions {
@@ -41,8 +41,10 @@ export function createAuth(o: AuthOptions) {
       // Al activarse el 2FA se revocan las demás sesiones (solo contraseña) del usuario.
       after: createAuthMiddleware(async (ctx) => {
         await mfa.despues(ctx);
+        await despuesDeCambiarPassword(ctx);
       }),
     },
+    user: { additionalFields: { debeCambiarPassword: { type: 'boolean', defaultValue: false, input: false } } },
     plugins: [twoFactor({ issuer: 'Consultorio' })],
   });
 }

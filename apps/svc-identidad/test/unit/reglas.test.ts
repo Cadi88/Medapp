@@ -15,19 +15,19 @@ describe('MFA obligatorio (rol médico o permiso admin)', () => {
 describe('decidirToken (rol x admin x twoFactorEnabled)', () => {
   test.each([
     ['medico', false, true, { ok: true, mfa: true }],
-    ['medico', false, false, { ok: false }],
-    ['medico', true, false, { ok: false }],
+    ['medico', false, false, { ok: false, motivo: 'MFA_REQUERIDA' }],
+    ['medico', true, false, { ok: false, motivo: 'MFA_REQUERIDA' }],
     ['recepcion', true, true, { ok: true, mfa: true }],
-    ['recepcion', true, false, { ok: false }],
+    ['recepcion', true, false, { ok: false, motivo: 'MFA_REQUERIDA' }],
     ['recepcion', false, true, { ok: true, mfa: true }],
     ['recepcion', false, false, { ok: true, mfa: false }],
   ] as const)('%s admin=%s twoFactorEnabled=%s', (rol, admin, twoFactorEnabled, esperado) => {
-    expect(decidirToken({ rol, admin, twoFactorEnabled })).toEqual(esperado);
+    expect(decidirToken({ rol, admin, twoFactorEnabled, debeCambiarPassword: false })).toEqual(esperado);
   });
 
   test('twoFactorEnabled nulo o indefinido cuenta como falso', () => {
-    expect(decidirToken({ rol: 'medico', admin: false, twoFactorEnabled: null })).toEqual({ ok: false });
-    expect(decidirToken({ rol: 'recepcion', admin: false, twoFactorEnabled: undefined })).toEqual({ ok: true, mfa: false });
+    expect(decidirToken({ rol: 'medico', admin: false, twoFactorEnabled: null, debeCambiarPassword: false })).toEqual({ ok: false, motivo: 'MFA_REQUERIDA' });
+    expect(decidirToken({ rol: 'recepcion', admin: false, twoFactorEnabled: undefined, debeCambiarPassword: false })).toEqual({ ok: true, mfa: false });
   });
 });
 

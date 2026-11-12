@@ -47,3 +47,24 @@ export function hooksRevocarAlActivarMfa() {
 
   return { antes, despues };
 }
+
+type Adaptador = HookCtx['context']['internalAdapter'];
+
+/** Revoca las sesiones del usuario (todas, o todas menos `conservar`). */
+export async function revocarSesiones(adapter: Pick<Adaptador, 'listSessions' | 'deleteSessions'>, usuarioId: string, conservar?: string): Promise<void> {
+  const tokens = (await adapter.listSessions(usuarioId)).map((s) => s.token).filter((t) => t !== conservar);
+  if (tokens.length > 0) await adapter.deleteSessions(tokens);
+}
+
+/**
+ * Tras un `/change-password` exitoso: baja la bandera de contraseña temporal y revoca las otras sesiones
+ * (se conserva la vigente, que puede ser la recién emitida). Si la respuesta fue un error no hace nada.
+ */
+export async function despuesDeCambiarPassword(ctx: HookCtx): Promise<void> {
+  if (ctx.path !== '/change-password') return;
+  if ((ctx.context.returned as unknown) instanceof Error) return;
+  const s = ctx.context.session;
+  if (!s) return;
+  await ctx.context.internalAdapter.updateUser(s.user.id, { debeCambiarPassword: false });
+  await revocarSesiones(ctx.context.internalAdapter, s.user.id, ctx.context.newSession?.session.token ?? s.session.token);
+}

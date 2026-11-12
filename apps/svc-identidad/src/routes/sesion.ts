@@ -55,8 +55,12 @@ export const sesionRoutes: FastifyPluginAsync<SesionRoutesOptions> = async (app,
     // Lectura fresca en cada llamada: un miembro removido no obtiene token nuevo.
     const m = (await membresiasDe(pool, s.usuarioId)).find((x) => x.tenantId === tenantId);
     if (!m) throw new AppError('PROHIBIDO', 'No eres miembro de este consultorio', 403);
-    const d = decidirToken({ rol: m.rol, admin: m.admin, twoFactorEnabled: s.twoFactorEnabled });
-    if (!d.ok) throw new AppError('MFA_REQUERIDA', 'Este rol requiere autenticación de dos factores', 403);
+    const d = decidirToken({ rol: m.rol, admin: m.admin, twoFactorEnabled: s.twoFactorEnabled, debeCambiarPassword: s.debeCambiarPassword });
+    if (!d.ok) {
+      throw d.motivo === 'PASSWORD_TEMPORAL'
+        ? new AppError('PASSWORD_TEMPORAL', 'Debes cambiar tu contraseña temporal', 403)
+        : new AppError('MFA_REQUERIDA', 'Este rol requiere autenticación de dos factores', 403);
+    }
     const token = await firmarTokenTenant({ sub: s.usuarioId, tid: tenantId, rol: m.rol, admin: m.admin, mfa: d.mfa }, jwtPrivateJwk);
     return { token };
   });

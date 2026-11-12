@@ -62,3 +62,15 @@ describe('migraciones', () => {
     expect(m002).toMatch(/GRANT EXECUTE ON FUNCTION fn_membresias_usuario\(uuid\) TO "identidad_app"/);
   });
 });
+
+describe('migración 004 (contraseña temporal)', () => {
+  const m004 = leer('004_password_temporal.sql');
+
+  test('agrega la columna a "user" y la función SECURITY DEFINER con permisos acotados', () => {
+    expect(m004).toMatch(/ALTER TABLE "user" ADD COLUMN "debeCambiarPassword" boolean NOT NULL DEFAULT false/);
+    expect(m004).toMatch(/CREATE FUNCTION fn_membresias_otros_consultorios\(p_usuario uuid, p_tenant uuid\)/);
+    expect(m004).toMatch(/SECURITY DEFINER\s+SET search_path = public, pg_temp/);
+    expect(m004).toMatch(/REVOKE ALL ON FUNCTION fn_membresias_otros_consultorios\(uuid, uuid\) FROM PUBLIC/);
+    expect(m004).toMatch(/GRANT EXECUTE ON FUNCTION fn_membresias_otros_consultorios\(uuid, uuid\) TO "identidad_app"/);
+  });
+});

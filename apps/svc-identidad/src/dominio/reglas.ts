@@ -5,12 +5,19 @@ export function exigeMfa(m: { rol: Rol; admin: boolean }): boolean {
   return m.rol === 'medico' || m.admin;
 }
 
-export type DecisionToken = { ok: true; mfa: boolean } | { ok: false };
+export type MotivoNegacion = 'PASSWORD_TEMPORAL' | 'MFA_REQUERIDA';
+export type DecisionToken = { ok: true; mfa: boolean } | { ok: false; motivo: MotivoNegacion };
 
-/** Decide si se puede emitir token de tenant y qué valor lleva el claim `mfa`. */
-export function decidirToken(i: { rol: Rol; admin: boolean; twoFactorEnabled: boolean | null | undefined }): DecisionToken {
+/** Decide si se puede emitir token de tenant y qué valor lleva el claim `mfa`. La contraseña temporal tiene prioridad. */
+export function decidirToken(i: {
+  rol: Rol;
+  admin: boolean;
+  twoFactorEnabled: boolean | null | undefined;
+  debeCambiarPassword: boolean;
+}): DecisionToken {
+  if (i.debeCambiarPassword) return { ok: false, motivo: 'PASSWORD_TEMPORAL' };
   const mfa = i.twoFactorEnabled === true;
-  if (exigeMfa(i) && !mfa) return { ok: false };
+  if (exigeMfa(i) && !mfa) return { ok: false, motivo: 'MFA_REQUERIDA' };
   return { ok: true, mfa };
 }
 

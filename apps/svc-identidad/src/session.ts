@@ -5,6 +5,7 @@ import type { Auth } from './auth.js';
 export interface SesionUsuario {
   usuarioId: string;
   twoFactorEnabled: boolean;
+  debeCambiarPassword: boolean;
 }
 
 function aHeaders(req: FastifyRequest): Headers {
@@ -23,5 +24,6 @@ function aHeaders(req: FastifyRequest): Headers {
 export async function requerirSesion(auth: Pick<Auth, 'api'>, req: FastifyRequest): Promise<SesionUsuario> {
   const s = await auth.api.getSession({ headers: aHeaders(req) });
   if (!s) throw new AppError('NO_AUTENTICADO', 'No autenticado', 401);
-  return { usuarioId: s.user.id, twoFactorEnabled: (s.user as { twoFactorEnabled?: boolean | null }).twoFactorEnabled === true };
+  const u = s.user as { twoFactorEnabled?: boolean | null; debeCambiarPassword?: boolean | null };
+  return { usuarioId: s.user.id, twoFactorEnabled: u.twoFactorEnabled === true, debeCambiarPassword: u.debeCambiarPassword === true };
 }

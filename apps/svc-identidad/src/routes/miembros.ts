@@ -5,12 +5,13 @@ import type pg from 'pg';
 import type { Auth } from '../auth.js';
 import { exigirActor } from '../actor.js';
 import { isUniqueViolation } from '../db/errors.js';
+import { puedeReiniciarPassword } from '../dominio/password-temporal.js';
 import { puedeQuitarAdmin } from '../dominio/reglas.js';
-import { miembroSchema, uuidSchema } from '../validadores.js';
+import { miembroSchema, passwordTemporalSchema, uuidSchema } from '../validadores.js';
 
 export interface MiembrosRoutesOptions {
   pool: pg.Pool;
-  auth: Pick<Auth, 'api'>;
+  auth: Pick<Auth, 'api' | '$context'>;
 }
 
 const yaMiembro = (): AppError => new AppError('CONFLICTO', 'La persona ya es miembro del consultorio', 409);
@@ -45,6 +46,8 @@ export const miembrosRoutes: FastifyPluginAsync<MiembrosRoutesOptions> = async (
     try {
       await withTenant(pool, tenantId, async (tx) => {
         await exigirActor(tx, { tenantId, usuarioId: actorId }, { admin: true });
+        // Solo la cuenta recién creada nace con contraseña temporal; un usuario existente no se toca.
+        if (creado) await tx.query('UPDATE "user" SET "debeCambiarPassword" = true WHERE id = $1', [vinculado]);
         await tx.query('INSERT INTO membresia (tenant_id, usuario_id, rol, admin) VALUES ($1, $2, $3, $4)', [
           tenantId,
           vinculado,
@@ -98,6 +101,31 @@ export const miembrosRoutes: FastifyPluginAsync<MiembrosRoutesOptions> = async (
       await tx.query('DELETE FROM perfil_medico WHERE tenant_id = $1 AND usuario_id = $2', [tenantId, usuarioId]);
       await tx.query('DELETE FROM membresia WHERE tenant_id = $1 AND usuario_id = $2', [tenantId, usuarioId]);
       await enqueueEvent(tx, UsuarioDesvinculado.create({ tenantId, actorId, traceId, data: { usuarioId } }));
+    });
+    return reply.code(204).send();
+  });
+
+  // Reinicio de contraseña por un admin: solo cuentas que pertenecen únicamente a este consultorio.
+  app.post('/miembros/:usuarioId/password-temporal', { preHandler: requireAdmin() }, async (req, reply) => {
+    const usuarioId = uuidSchema.parse((req.params as { usuarioId?: unknown }).usuarioId);
+    const { passwordTemporal } = passwordTemporalSchema.parse(req.body);
+    const { tenantId, usuarioId: actorId } = req.ctx;
+    const hash = await (await auth.$context).password.hash(passwordTemporal);
+
+    await withTenant(pool, tenantId, async (tx) => {
+      await exigirActor(tx, { tenantId, usuarioId: actorId }, { admin: true });
+      const esMiembro = (await tx.query('SELECT 1 FROM membresia WHERE tenant_id = $1 AND usuario_id = $2 FOR SHARE', [tenantId, usuarioId])).rowCount === 1;
+      const otros = (await tx.query<{ n: number }>('SELECT fn_membresias_otros_consultorios($1, $2) AS n', [usuarioId, tenantId])).rows[0]?.n ?? 0;
+      const decision = puedeReiniciarPassword({ esMiembro, otrosConsultorios: otros });
+      if (decision === 'no_encontrado') throw new AppError('NO_ENCONTRADO', 'Miembro no encontrado', 404);
+      if (decision === 'compartida') throw new AppError('CONFLICTO', 'La cuenta pertenece también a otro consultorio', 409);
+      const cuenta = await tx.query(
+        'UPDATE account SET password = $2, "updatedAt" = now() WHERE "userId" = $1 AND "providerId" = $3',
+        [usuarioId, hash, 'credential'],
+      );
+      if (cuenta.rowCount !== 1) throw new AppError('NO_ENCONTRADO', 'Miembro no encontrado', 404);
+      await tx.query('UPDATE "user" SET "debeCambiarPassword" = true, "updatedAt" = now() WHERE id = $1', [usuarioId]);
+      await tx.query('DELETE FROM session WHERE "userId" = $1', [usuarioId]);
     });
     return reply.code(204).send();
   });

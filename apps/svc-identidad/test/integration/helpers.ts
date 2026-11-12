@@ -194,7 +194,14 @@ export async function crearConsultorio(app: FastifyInstance, slug: string): Prom
 export const invitarMiembro = (app: FastifyInstance, adminToken: string, cuerpo: Record<string, unknown>) =>
   app.inject({ method: 'POST', url: '/miembros', payload: cuerpo, headers: conToken(adminToken) });
 
-/** Invita a un miembro (password temporal = PASSWORD) y devuelve su id. `admin` concede además el permiso de administración. */
+/** Primer ingreso de un miembro invitado: cambia la contraseña temporal (por la misma PASSWORD) y baja la bandera. */
+export async function cambiarPasswordTemporal(app: FastifyInstance, email: string, nueva = PASSWORD, actual = PASSWORD): Promise<void> {
+  const cookie = await iniciarSesion(app, email, actual);
+  const r = await jsonAuth(app, '/auth/change-password', { currentPassword: actual, newPassword: nueva }, cookie);
+  if (r.statusCode !== 200) throw new Error(`change-password falló: ${r.statusCode} ${r.body}`);
+}
+
+/** Invita a un miembro (password temporal = PASSWORD), le quita la bandera de contraseña temporal y devuelve su id. `admin` concede además el permiso de administración. */
 export async function agregarMiembro(
   app: FastifyInstance,
   c: Consultorio,
@@ -204,5 +211,6 @@ export async function agregarMiembro(
 ): Promise<string> {
   const r = await invitarMiembro(app, c.adminToken, { email, nombre: `Miembro ${rol}`, rol, admin, passwordTemporal: PASSWORD });
   if (r.statusCode !== 201) throw new Error(`invitación falló: ${r.statusCode} ${r.body}`);
+  await cambiarPasswordTemporal(app, email);
   return r.json<{ usuarioId: string }>().usuarioId;
 }
