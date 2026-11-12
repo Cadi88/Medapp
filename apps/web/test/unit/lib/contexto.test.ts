@@ -45,8 +45,9 @@ describe('obtenerContexto', () => {
     expect(new Headers(init.headers).get('x-forwarded-for')).toBe('203.0.113.7');
   });
 
-  test('sin token → /login', async () => {
-    await expect(obtenerContexto()).rejects.toThrow('REDIRECT:/login');
+  test('sin token (la renovación del proxy falló sin desvío) → error a la frontera de error, no /login', async () => {
+    // La sesión puede seguir vigente: mandar a /login la dejaría en un ciclo cuando /login reenvíe a usuarios con sesión.
+    await expect(obtenerContexto()).rejects.toThrow('Sin token del consultorio');
     expect(fetchFalso).not.toHaveBeenCalled();
   });
 

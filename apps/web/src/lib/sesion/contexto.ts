@@ -14,12 +14,14 @@ export interface Contexto {
 }
 
 /**
- * Usuario y consultorio de la petición, para Server Components. El proxy ya garantizó un token vigente;
+ * Usuario y consultorio de la petición, para Server Components. El proxy normalmente ya renovó el token;
  * `cache()` hace una sola llamada al gateway por petición aunque varios componentes lo pidan.
  */
 export const obtenerContexto = cache(async (): Promise<Contexto> => {
   const token = await leerToken();
-  if (!token) redirect('/login');
+  // Sin token el proxy no pudo renovarlo (p. ej. gateway caído) pero la sesión puede seguir vigente:
+  // va a la frontera de error (con reintento), no a /login.
+  if (!token) throw new Error('Sin token del consultorio: no se pudo renovar la sesión');
   const r = await llamarGateway('/api/identidad/consultorio', {
     auth: 'token',
     esquema: consultorioSchema,

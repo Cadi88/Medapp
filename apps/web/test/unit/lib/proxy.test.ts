@@ -66,6 +66,17 @@ describe('acceso por ruta', () => {
     expect(fetchFalso).not.toHaveBeenCalled();
   });
 
+  test.each([
+    ['GET', 307],
+    ['HEAD', 307],
+    ['POST', 303],
+    ['PUT', 303],
+  ])('redirección de %s → %i (un POST de server action no se reenvía como POST a /login)', async (method, status) => {
+    const r = await proxy(new NextRequest('http://localhost:3000/agenda', { method }));
+    expect(r.status).toBe(status);
+    expect(destino(r)).toBe('http://localhost:3000/login');
+  });
+
   test('el matcher excluye estáticos de Next', () => {
     expect(config.matcher).toEqual(['/((?!_next/static|_next/image|favicon.ico|.*\\..*).*)']);
   });
@@ -146,6 +157,33 @@ describe('renovación del token', () => {
         .map((x) => x.name)
         .sort(),
     ).toEqual(['consultorio_id', 'token_consultorio']);
+  });
+
+  test.each([
+    [400, 'VALIDACION'],
+    [404, 'NO_ENCONTRADO'],
+  ])('%i %s (consultorio_id inválido o inexistente) → /elegir-consultorio y olvida el consultorio', async (status, code) => {
+    fetchFalso.mockResolvedValue(respuestaJson(status, { code, message: '' }));
+
+    const r = await proxy(peticion('/agenda', [SESION, 'consultorio_id=no-es-uuid', 'token_consultorio=viejo']));
+
+    expect(destino(r)).toBe('http://localhost:3000/elegir-consultorio');
+    expect(
+      r.cookies
+        .getAll()
+        .filter((x) => x.value === '' && x.maxAge === 0)
+        .map((x) => x.name)
+        .sort(),
+    ).toEqual(['consultorio_id', 'token_consultorio']);
+  });
+
+  test('las cookies __Secure- se borran con Secure aunque COOKIE_SEGURA no esté', async () => {
+    fetchFalso.mockResolvedValue(respuestaJson(401, { code: 'NO_AUTENTICADO', message: '' }));
+
+    const r = await proxy(peticion('/agenda', ['__Secure-better-auth.session_token=s', `consultorio_id=${CONSULTORIO}`]));
+
+    expect(r.cookies.get('__Secure-better-auth.session_token')).toMatchObject({ value: '', maxAge: 0, secure: true });
+    expect(r.cookies.get('consultorio_id')).toMatchObject({ value: '', maxAge: 0, secure: false });
   });
 
   test('gateway caído (503) → deja pasar; la pantalla muestra el aviso genérico', async () => {

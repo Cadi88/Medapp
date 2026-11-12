@@ -26,7 +26,19 @@ const PREFIJO_IDENTIDAD = '/api/identidad/';
 const ERROR_RED = { code: 'INTERNO', message: 'No se pudo contactar al servidor' } as const;
 const ERROR_RESPUESTA = { code: 'INTERNO', message: 'Respuesta inesperada del servidor' } as const;
 
-async function cabeceras<T>(ruta: string, o: OpcionesGateway<T>): Promise<Headers> {
+/**
+ * URL absoluta y normalizada (`..` y `%2e%2e` resueltos) dentro del gateway. Rechaza una ruta que no empiece
+ * con `/` o que cambie de origen (`//otro-host/...`): es un error de programación, no una respuesta de la API.
+ */
+function urlDelGateway(ruta: string): URL {
+  const base = new URL(gatewayUrl());
+  const url = ruta.startsWith('/') ? new URL(ruta, base) : undefined;
+  if (!url || url.origin !== base.origin) throw new Error(`Ruta del gateway inválida: ${ruta}`);
+  return url;
+}
+
+/** `url` ya normalizada: la decisión de enviar la cookie se toma sobre el `pathname` final, no sobre el texto recibido. */
+async function cabeceras<T>(url: URL, o: OpcionesGateway<T>): Promise<Headers> {
   const h = new Headers({ accept: 'application/json' });
   if (o.cuerpo !== undefined) h.set('content-type', 'application/json');
   if (o.ip) h.set('x-forwarded-for', o.ip);
@@ -34,7 +46,7 @@ async function cabeceras<T>(ruta: string, o: OpcionesGateway<T>): Promise<Header
     const token = await leerToken();
     if (token) h.set('authorization', `Bearer ${token}`);
   }
-  if (o.auth === 'sesion' && ruta.startsWith(PREFIJO_IDENTIDAD)) {
+  if (o.auth === 'sesion' && url.pathname.startsWith(PREFIJO_IDENTIDAD)) {
     const cookie = o.cabeceraCookie ?? (await cabeceraCookieAuth());
     if (cookie) h.set('cookie', cookie);
   }
@@ -56,12 +68,12 @@ async function leerCuerpo(res: Response): Promise<unknown> {
  * devuelve un `Resultado` (red caída → 503; respuesta fuera de contrato → 502 INTERNO).
  */
 export async function llamarGateway<T = unknown>(ruta: string, o: OpcionesGateway<T>): Promise<Resultado<T>> {
-  const url = `${gatewayUrl()}${ruta}`;
+  const url = urlDelGateway(ruta);
   let res: Response;
   try {
-    res = await fetch(url, {
+    res = await fetch(url.toString(), {
       method: o.metodo ?? 'GET',
-      headers: await cabeceras(ruta, o),
+      headers: await cabeceras(url, o),
       ...(o.cuerpo === undefined ? {} : { body: JSON.stringify(o.cuerpo) }),
       cache: 'no-store',
       redirect: 'manual',
@@ -80,9 +92,14 @@ export async function llamarGateway<T = unknown>(ruta: string, o: OpcionesGatewa
 }
 
 /**
- * Cadena `X-Forwarded-For` que recibió Next, completa. No se toma solo la primera IP: el cliente puede
- * inventarla. El gateway confía en la red del sitio (`CONFIAR_EN_PROXY`) y elige el último salto no confiable.
+ * IP del cliente para el gateway: SOLO el último salto de `X-Forwarded-For`, el que agrega el proxy inverso que
+ * está delante de `web`. Las entradas anteriores las puede escribir el cliente y se descartan.
+ *
+ * Dependencia de despliegue: delante de `web` debe ir un proxy inverso que AGREGUE `X-Forwarded-For` (el ALB en
+ * producción). Next solo lo fija si falta (`??=`), así que un cliente que llega directo a Next elige su IP; en
+ * desarrollo local se acepta. El gateway confía únicamente en la IP de `web` (`CONFIAR_EN_PROXY`).
  */
 export function ipDelCliente(cabeceras: Pick<Headers, 'get'>): string | undefined {
-  return cabeceras.get('x-forwarded-for') ?? undefined;
+  const ultimo = cabeceras.get('x-forwarded-for')?.split(',').at(-1)?.trim();
+  return ultimo || undefined;
 }

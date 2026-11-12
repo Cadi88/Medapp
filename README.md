@@ -17,8 +17,11 @@ bash scripts/generar-dev-env.sh                  # una sola vez: crea .env con s
 docker compose --profile app up -d --build --wait
 ```
 
-El gateway queda en `http://localhost:8080` (rutas `/api/identidad/*` y `/api/auditoria/*`); es el único puerto
-publicado de las aplicaciones. Sin `--profile app` solo se levanta la infraestructura (Postgres, NATS, MinIO).
+El gateway queda en `http://localhost:8080` (rutas `/api/identidad/*`, `/api/auditoria/*` y `/api/agenda/*`) y el sitio
+web en `http://localhost:3000`. Sin `--profile app` solo se levanta la infraestructura (Postgres, NATS, MinIO).
+
+El gateway confía como proxy solo en la IP fija del contenedor `web` (`CONFIAR_EN_PROXY=172.28.10.200/32`). En local un
+cliente que llama directo a Next puede elegir su `X-Forwarded-For` (no hay proxy inverso delante): aceptado, solo local.
 
 `BETTER_AUTH_URL` (por defecto `http://localhost:8080`) es el origen público de la API: Better Auth rechaza los POST con
 cookies cuya cabecera `Origin` no coincida, así que los clientes deben enviar ese origen.
@@ -106,6 +109,10 @@ cerrarse (o aceptarse explícitamente) antes de poner datos reales en AWS:
 - [ ] **`req.ip` detrás de Service Connect**: verificar en un entorno de prueba que el gateway ve la IP real del cliente
       (`CONFIAR_EN_PROXY` = CIDR de la VPC) y que identidad recibe el `x-forwarded-for` correcto; de ello dependen los
       límites por IP.
+- [ ] **Proxy inverso delante de `web`**: poner un proxy inverso que agregue `X-Forwarded-For` delante de `web` (el ALB).
+      El sitio reenvía al gateway solo el último salto de esa cabecera y el gateway confía únicamente en la IP de `web`;
+      sin ese proxy, un cliente que llega directo a Next elige su IP (y con ella los límites por IP). En desarrollo local
+      ocurre así (se llega a Next sin proxy): aceptado, solo local.
 - [ ] **Telemetría real**: `initTelemetry` se llama después de importar `http`, `fastify` y `pg`, así que la
       instrumentación automática no los parchea. Cargar el SDK antes que la aplicación (`node --import ./dist/telemetria.js`)
       y configurar `OTEL_EXPORTER_OTLP_ENDPOINT`.

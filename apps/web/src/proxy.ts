@@ -19,21 +19,28 @@ const RUTAS_SOLO_SESION = new Set(['/cambiar-password', '/configurar-mfa', '/ele
 
 const respuestaTokenSchema = z.object({ token: z.string().min(1) });
 
+/** 307 conserva el método: solo para GET/HEAD. Otro método (un POST de server action) va con 303 → GET. */
 function redirigir(req: NextRequest, ruta: string): NextResponse {
-  return NextResponse.redirect(new URL(ruta, req.url));
+  const status = req.method === 'GET' || req.method === 'HEAD' ? 307 : 303;
+  return NextResponse.redirect(new URL(ruta, req.url), status);
 }
 
 function borrar(res: NextResponse, nombres: readonly string[]): NextResponse {
-  for (const n of nombres) res.cookies.set(n, '', opcionesCookie(0));
+  for (const n of nombres) res.cookies.set(n, '', opcionesCookie(n, 0));
   return res;
 }
 
-/** Desvío tras un error al renovar. 401: la sesión ya no sirve. PROHIBIDO: ya no es miembro de ese consultorio. */
-function desviar(req: NextRequest, destino: Desvio): NextResponse {
+const esDelConsultorio = (n: string) => n === COOKIE_TOKEN || n === COOKIE_CONSULTORIO;
+
+/**
+ * Desvío tras un error al renovar. 401: la sesión ya no sirve. PROHIBIDO: ya no es miembro de ese consultorio.
+ * `/elegir-consultorio` (400/404): el `consultorio_id` guardado es inválido o ya no existe.
+ */
+function desviar(req: NextRequest, destino: Desvio | '/elegir-consultorio'): NextResponse {
   const res = redirigir(req, destino);
   const presentes = req.cookies.getAll().map((c) => c.name);
   if (destino === '/login') return borrar(res, presentes.filter(esCookieDeSesion));
-  if (destino === '/sin-acceso') return borrar(res, presentes.filter((n) => n === COOKIE_TOKEN || n === COOKIE_CONSULTORIO));
+  if (destino === '/sin-acceso' || destino === '/elegir-consultorio') return borrar(res, presentes.filter(esDelConsultorio));
   return res;
 }
 
@@ -69,8 +76,8 @@ export async function proxy(req: NextRequest): Promise<NextResponse> {
     res.cookies.set(COOKIE_TOKEN, r.datos.token, opcionesToken());
     return res;
   }
-  const destino = destinoPorError(r.error, r.status);
-  // Sin desvío (p. ej. gateway caído): la pantalla recibe el error y muestra el aviso genérico.
+  const destino = destinoPorError(r.error, r.status) ?? (r.status === 400 || r.status === 404 ? '/elegir-consultorio' : null);
+  // Sin desvío (p. ej. gateway caído): la pantalla recibe el error y muestra el aviso genérico (frontera de error).
   return destino ? desviar(req, destino) : NextResponse.next();
 }
 

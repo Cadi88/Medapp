@@ -18,18 +18,24 @@ export function esCookieDeSesion(nombre: string): boolean {
   return esCookieAuth(nombre) || nombre === COOKIE_TOKEN || nombre === COOKIE_CONSULTORIO;
 }
 
-/** Atributos comunes: httpOnly (el JS del navegador no las lee), SameSite=Lax y Secure en producción. */
-export function opcionesCookie(maxAge?: number) {
+/** El navegador rechaza (al escribir y al borrar) una cookie `__Secure-`/`__Host-` sin `Secure`. */
+const PREFIJO_SEGURO = /^__(Secure|Host)-/;
+
+/**
+ * Atributos de la cookie `nombre`: httpOnly (el JS del navegador no la lee), SameSite=Lax y Secure en producción
+ * (o siempre, si el nombre lleva prefijo `__Secure-`/`__Host-`).
+ */
+export function opcionesCookie(nombre: string, maxAge?: number) {
   return {
     httpOnly: true,
     sameSite: 'lax' as const,
-    secure: cookieSegura(),
+    secure: cookieSegura() || PREFIJO_SEGURO.test(nombre),
     path: '/',
     ...(maxAge === undefined ? {} : { maxAge }),
   };
 }
 
-export const opcionesToken = () => opcionesCookie(MAX_AGE_TOKEN_S);
+export const opcionesToken = () => opcionesCookie(COOKIE_TOKEN, MAX_AGE_TOKEN_S);
 
 export interface CookieRecibida {
   name: string;
@@ -78,7 +84,7 @@ export async function guardarCookiesAuth(setCookies: readonly string[]): Promise
   for (const sc of setCookies) {
     const c = interpretarSetCookie(sc);
     if (!c || !esCookieAuth(c.name)) continue;
-    almacen.set(c.name, c.value, { ...opcionesCookie(c.maxAge), ...(c.expires ? { expires: c.expires } : {}) });
+    almacen.set(c.name, c.value, { ...opcionesCookie(c.name, c.maxAge), ...(c.expires ? { expires: c.expires } : {}) });
   }
 }
 
@@ -95,7 +101,7 @@ export async function leerToken(): Promise<string | undefined> {
 }
 
 export async function guardarConsultorio(id: string): Promise<void> {
-  (await cookies()).set(COOKIE_CONSULTORIO, id, opcionesCookie(MAX_AGE_CONSULTORIO_S));
+  (await cookies()).set(COOKIE_CONSULTORIO, id, opcionesCookie(COOKIE_CONSULTORIO, MAX_AGE_CONSULTORIO_S));
 }
 
 export async function leerConsultorio(): Promise<string | undefined> {
@@ -106,6 +112,6 @@ export async function leerConsultorio(): Promise<string | undefined> {
 export async function cerrarSesion(): Promise<void> {
   const almacen = await cookies();
   for (const c of almacen.getAll()) {
-    if (esCookieDeSesion(c.name)) almacen.set(c.name, '', opcionesCookie(0));
+    if (esCookieDeSesion(c.name)) almacen.set(c.name, '', opcionesCookie(c.name, 0));
   }
 }

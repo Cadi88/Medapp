@@ -118,8 +118,9 @@ services:
       AGENDA_URL: http://svc-agenda:3004
       # En local todo llega de una sola IP: límite holgado para que la E2E repetida no choque con el rate limit.
       LIMITE_PUBLICO_POR_MIN: ${LIMITE_PUBLICO_POR_MIN:-1000}
-      # El sitio web llama al gateway desde la red de compose y reenvía X-Forwarded-For con la IP del cliente.
-      CONFIAR_EN_PROXY: 172.28.0.0/16
+      # Solo se confía en la IP fija de `web` (reenvía X-Forwarded-For con la IP del cliente). Las llamadas directas
+      # del host a :8080 llegan desde el puente de la red y no se tratan como proxy.
+      CONFIAR_EN_PROXY: 172.28.10.200/32
     depends_on:
       svc-identidad: { condition: service_healthy }
       svc-auditoria: { condition: service_healthy }
@@ -136,15 +137,20 @@ services:
       GATEWAY_URL: http://gateway:8080
       # En local es HTTP; en producción (HTTPS) va en "true".
       COOKIE_SEGURA: "false"
+    networks:
+      default:
+        ipv4_address: 172.28.10.200
     depends_on:
       gateway: { condition: service_healthy }
 
-# Subred fija de la red de compose: el gateway confía en ella (CONFIAR_EN_PROXY) para leer la IP que reenvía el sitio.
+# Subred fija para dar a `web` una IP conocida (la única en la que confía el gateway). Las IP dinámicas salen de
+# ip_range (.0–.127), así ningún otro contenedor puede tomar la .200.
 networks:
   default:
     ipam:
       config:
-        - subnet: 172.28.0.0/16
+        - subnet: 172.28.10.0/24
+          ip_range: 172.28.10.0/25
 
 volumes:
   pgdata:

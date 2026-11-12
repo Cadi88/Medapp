@@ -168,9 +168,50 @@ describe('llamarGateway', () => {
   });
 });
 
+describe('URL normalizada', () => {
+  test.each([
+    ['/api/identidad/../agenda/x', 'http://gateway:8080/api/agenda/x'],
+    ['/api/identidad/%2e%2e/agenda/x', 'http://gateway:8080/api/agenda/x'],
+    ['/api/identidad/%2E%2E/agenda/x', 'http://gateway:8080/api/agenda/x'],
+  ])('%s se normaliza fuera de identidad: no lleva la cookie de sesión', async (ruta, url) => {
+    c.poner('better-auth.session_token', 's');
+    fetchFalso.mockResolvedValue(respuestaJson(200, {}));
+
+    await llamarGateway(ruta, { auth: 'sesion' });
+
+    expect(peticion().url).toBe(url);
+    expect(peticion().headers.get('cookie')).toBeNull();
+  });
+
+  test('una ruta de identidad con segmentos que se normalizan dentro de identidad sí lleva la cookie', async () => {
+    c.poner('better-auth.session_token', 's');
+    fetchFalso.mockResolvedValue(respuestaJson(200, {}));
+
+    await llamarGateway('/api/agenda/../identidad/tenants/mios', { auth: 'sesion' });
+
+    expect(peticion().url).toBe('http://gateway:8080/api/identidad/tenants/mios');
+    expect(peticion().headers.get('cookie')).toBe('better-auth.session_token=s');
+  });
+
+  test.each([['api/identidad/x'], ['@otro-host/api/identidad/x'], ['http://otro-host/api/identidad/x'], ['//otro-host/api/identidad/x']])(
+    'ruta %j que no empieza con / o cambia de origen → se rechaza sin llamar',
+    async (ruta) => {
+      c.poner('better-auth.session_token', 's');
+
+      await expect(llamarGateway(ruta, { auth: 'sesion' })).rejects.toThrow('Ruta del gateway inválida');
+      expect(fetchFalso).not.toHaveBeenCalled();
+    },
+  );
+});
+
 describe('ipDelCliente', () => {
-  test('reenvía la cadena X-Forwarded-For completa (el gateway elige el último salto no confiable)', () => {
-    expect(ipDelCliente(new Headers({ 'x-forwarded-for': '198.51.100.1, 203.0.113.7' }))).toBe('198.51.100.1, 203.0.113.7');
+  test('toma solo el último salto de X-Forwarded-For: el que agrega el proxy inverso que debe ir delante de web', () => {
+    expect(ipDelCliente(new Headers({ 'x-forwarded-for': '6.6.6.6, 203.0.113.7' }))).toBe('203.0.113.7');
+    expect(ipDelCliente(new Headers({ 'x-forwarded-for': ' 203.0.113.7 ' }))).toBe('203.0.113.7');
+  });
+
+  test('sin X-Forwarded-For (o vacío) no se envía ninguno', () => {
     expect(ipDelCliente(new Headers())).toBeUndefined();
+    expect(ipDelCliente(new Headers({ 'x-forwarded-for': ' , ' }))).toBeUndefined();
   });
 });

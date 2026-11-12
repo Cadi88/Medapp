@@ -34,8 +34,15 @@ describe('guardarCookiesAuth', () => {
 
     expect(c.sets).toEqual([
       { name: 'better-auth.session_token', value: 'abc.firma/+=', httpOnly: true, sameSite: 'lax', secure: false, path: '/', maxAge: 604800 },
-      { name: '__Secure-better-auth.two_factor', value: 'xyz', httpOnly: true, sameSite: 'lax', secure: false, path: '/', maxAge: 600 },
+      // Prefijo __Secure-: el navegador la rechaza sin Secure, así que siempre lo lleva aunque COOKIE_SEGURA no esté.
+      { name: '__Secure-better-auth.two_factor', value: 'xyz', httpOnly: true, sameSite: 'lax', secure: true, path: '/', maxAge: 600 },
     ]);
+  });
+
+  test('__Host- también va siempre con Secure', async () => {
+    await guardarCookiesAuth(['__Host-better-auth.session_token=h; Path=/']);
+
+    expect(c.sets[0]).toMatchObject({ name: '__Host-better-auth.session_token', secure: true, path: '/' });
   });
 
   test('con COOKIE_SEGURA=true las cookies son Secure', async () => {
@@ -118,6 +125,18 @@ describe('token y consultorio', () => {
     await cerrarSesion();
 
     expect(c.almacen.getAll().map((x) => x.name)).toEqual(['preferencia']);
+  });
+
+  test('cerrarSesion borra las cookies __Secure- con Secure (si no, el navegador ignora el borrado)', async () => {
+    c.poner('__Secure-better-auth.session_token', 's');
+    c.poner('token_consultorio', 'jwt');
+
+    await cerrarSesion();
+
+    expect(c.sets).toEqual([
+      expect.objectContaining({ name: '__Secure-better-auth.session_token', value: '', maxAge: 0, secure: true }),
+      expect.objectContaining({ name: 'token_consultorio', value: '', maxAge: 0, secure: false }),
+    ]);
   });
 
   test('esCookieDeSesion', () => {
