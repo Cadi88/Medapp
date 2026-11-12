@@ -72,7 +72,7 @@ La Fase 1 del diseño general (Agenda) se divide en tres entregas, cada una con 
 | Evento | Versión | Datos |
 |---|---|---|
 | `usuario.vinculado` | **2** | `{ usuarioId, nombre, rol, admin }` |
-| `miembro.actualizado` | 1 (nuevo) | `{ usuarioId, nombre, rol, admin }`: se emite en `PATCH /miembros` y cuando cambia el nombre |
+| `miembro.actualizado` | 1 (nuevo) | `{ usuarioId, nombre, rol, admin }`: se emite en `PATCH /miembros` (no hay edición de nombre en esta entrega) |
 | `tenant.creado` | 1 | sin cambios |
 | `usuario.desvinculado` | 1 | sin cambios |
 | `medico.actualizado` | 1 | sin cambios |
@@ -173,7 +173,7 @@ Next.js (App Router), React y TypeScript estricto, Tailwind CSS y componentes sh
   - `sesion`: la cookie de Better Auth. Next la reenvía al gateway solo en rutas de identidad, igual que hoy.
   - `token_consultorio`: el JWT del tenant (15 min).
 - **Login:** `POST /auth/sign-in/email` → (si hay 2FA) verificación TOTP → `GET /tenants/mios` → si hay uno, se elige solo; si hay varios, `/elegir-consultorio` → `POST /sesion/tenant`.
-- **Renovación:** antes de cada llamada, si al JWT le queda menos de 60 s, Next pide uno nuevo con la sesión.
+- **Renovación:** el `proxy` de Next (antes `middleware`) corre antes de cada petición; si al JWT le quedan menos de 60 s, pide uno nuevo con la sesión y lo escribe en la cookie (los Server Components no pueden escribir cookies).
 - **Desvíos:** `PASSWORD_TEMPORAL` → `/cambiar-password`. `MFA_REQUERIDA` → `/configurar-mfa`. `401` → `/login`.
 - **CSRF:** las *server actions* de Next ya verifican `Origin`. No hay rutas de mutación fuera de server actions.
 - **IP real:** Next reenvía `X-Forwarded-For` con la IP del cliente. El gateway incluye la IP del contenedor web en `trustProxy`.
