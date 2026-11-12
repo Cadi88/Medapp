@@ -171,6 +171,10 @@ describe('PATCH /citas/:id (reprogramar)', () => {
     expect(primera.status).toBe(200);
     expect(segunda.status).toBe(409);
     expect(segunda.body['code']).toBe('CONFLICTO_VERSION');
+    const final = await llamar('GET', `/citas/${id}`, await recepcion());
+    expect(final.body).toMatchObject({ version: 2, inicio: hueco(310) });
+    const n = await ag.migrator.query("SELECT 1 FROM outbox WHERE tenant_id = $1 AND type = 'cita.reprogramada' AND payload->'data'->>'citaId' = $2", [T, id]);
+    expect(n.rowCount).toBe(1);
   });
 
   test('reprogramar una cita atendida → 409 CONFLICTO', async () => {

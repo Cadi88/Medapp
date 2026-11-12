@@ -58,4 +58,11 @@ test('dos reprogramaciones simultáneas con la misma versión → una 200, otra 
   expect([a.statusCode, b.statusCode].sort()).toEqual([200, 409]);
   const perdedora = a.statusCode === 409 ? a : b;
   expect(JSON.parse(perdedora.body)).toMatchObject({ code: 'CONFLICTO_VERSION' });
+  const ganadora = a.statusCode === 200 ? a : b;
+  const inicioGanador = (JSON.parse(ganadora.body) as { inicio: string }).inicio;
+  const fila = await withTenant(ag.appPool, T, (tx) => tx.query<{ version: number; inicio: Date }>('SELECT version, lower(rango) AS inicio FROM cita WHERE id = $1', [c.id]));
+  expect(fila.rows[0]!.version).toBe(2);
+  expect(fila.rows[0]!.inicio.toISOString()).toBe(inicioGanador);
+  const n = await ag.migrator.query("SELECT 1 FROM outbox WHERE tenant_id = $1 AND type = 'cita.reprogramada' AND payload->'data'->>'citaId' = $2", [T, c.id]);
+  expect(n.rowCount).toBe(1);
 });
