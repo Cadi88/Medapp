@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import { datosFiscalesSchema, miembroSchema, perfilSchema, tenantBodySchema } from '../../src/validadores.js';
+import { datosFiscalesSchema, altaMiembroSchema, perfilSchema, tenantBodySchema } from '../../src/validadores.js';
 
 const fiscales = { rfc: 'XAXX010101000', razonSocial: 'Clinica SA de CV', regimenFiscal: '601', cp: '06600' };
 
@@ -50,7 +50,7 @@ describe('perfil medico', () => {
 describe('miembro y cuerpo de sesion', () => {
   const base = { email: 'Nuevo@Ejemplo.MX', nombre: 'Nuevo', rol: 'recepcion', admin: false, passwordTemporal: 'clave-temporal-123' };
   test('normaliza el email a minusculas', () => {
-    expect(miembroSchema.parse(base).email).toBe('nuevo@ejemplo.mx');
+    expect(altaMiembroSchema.parse(base).email).toBe('nuevo@ejemplo.mx');
   });
   test.each([
     ['rol desconocido', { rol: 'root' }],
@@ -61,7 +61,7 @@ describe('miembro y cuerpo de sesion', () => {
     ['email invalido', { email: 'nope' }],
     ['nombre vacio', { nombre: '' }],
   ])('%s', (_n, cambio) => {
-    expect(miembroSchema.safeParse({ ...base, ...cambio }).success).toBe(false);
+    expect(altaMiembroSchema.safeParse({ ...base, ...cambio }).success).toBe(false);
   });
   test('tenantId debe ser UUID', () => {
     expect(tenantBodySchema.safeParse({ tenantId: 'no-uuid' }).success).toBe(false);

@@ -6,6 +6,7 @@ import type pg from 'pg';
 import { createAuth } from './auth.js';
 import { publicJwkFrom } from './jwt-keys.js';
 import { authRoutes } from './routes/auth.js';
+import { consultorioRoutes } from './routes/consultorio.js';
 import { datosFiscalesRoutes } from './routes/datos-fiscales.js';
 import { miembrosRoutes } from './routes/miembros.js';
 import { perfilRoutes } from './routes/perfil.js';
@@ -41,6 +42,7 @@ export async function buildServer(o: ServerOptions): Promise<FastifyInstance> {
   await app.register(authRoutes, { auth });
   await app.register(registroRoutes, { deps: createRegistroDeps(o.pool, auth, app.log) });
   await app.register(sesionRoutes, { auth, pool: o.pool, jwtPrivateJwk: o.jwtPrivateJwk });
+  await app.register(consultorioRoutes, { pool: o.pool });
   await app.register(miembrosRoutes, { auth, pool: o.pool });
   await app.register(perfilRoutes, { pool: o.pool });
   await app.register(datosFiscalesRoutes, { pool: o.pool });

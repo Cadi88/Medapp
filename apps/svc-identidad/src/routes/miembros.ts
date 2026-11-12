@@ -1,4 +1,4 @@
-import { UsuarioDesvinculado, UsuarioVinculado } from '@consultorio/contracts';
+import { editarMiembroSchema, MiembroActualizado, UsuarioDesvinculado, UsuarioVinculado, type Miembro } from '@consultorio/contracts';
 import { AppError, enqueueEvent, requireAdmin, withTenant } from '@consultorio/platform';
 import type { FastifyPluginAsync } from 'fastify';
 import type pg from 'pg';
@@ -7,11 +7,59 @@ import { exigirActor } from '../actor.js';
 import { isUniqueViolation } from '../db/errors.js';
 import { puedeReiniciarPassword } from '../dominio/password-temporal.js';
 import { puedeQuitarAdmin } from '../dominio/reglas.js';
-import { miembroSchema, passwordTemporalSchema, uuidSchema } from '../validadores.js';
+import { altaMiembroSchema, passwordTemporalSchema, uuidSchema } from '../validadores.js';
 
 export interface MiembrosRoutesOptions {
   pool: pg.Pool;
   auth: Pick<Auth, 'api' | '$context'>;
+}
+
+interface FilaMiembro {
+  usuario_id: string;
+  nombre: string;
+  email: string;
+  rol: Miembro['rol'];
+  admin: boolean;
+  mfa_activo: boolean;
+  debe_cambiar_password: boolean;
+  tiene_perfil: boolean;
+  cedula_profesional: string | null;
+  especialidad: string | null;
+  cedula_especialidad: string | null;
+  institucion: string | null;
+}
+
+/** Miembros del tenant (nombre y email de "user", perfil médico opcional), por nombre; `usuarioId` filtra a uno. */
+async function leerMiembros(tx: pg.PoolClient, tenantId: string, usuarioId?: string): Promise<Miembro[]> {
+  const r = await tx.query<FilaMiembro>(
+    `SELECT m.usuario_id, u.name AS nombre, u.email, m.rol, m.admin,
+            COALESCE(u."twoFactorEnabled", false) AS mfa_activo, u."debeCambiarPassword" AS debe_cambiar_password,
+            p.usuario_id IS NOT NULL AS tiene_perfil,
+            p.cedula_profesional, p.especialidad, p.cedula_especialidad, p.institucion
+       FROM membresia m
+       JOIN "user" u ON u.id = m.usuario_id
+       LEFT JOIN perfil_medico p ON p.tenant_id = m.tenant_id AND p.usuario_id = m.usuario_id
+      WHERE m.tenant_id = $1 AND ($2::uuid IS NULL OR m.usuario_id = $2)
+      ORDER BY u.name, m.usuario_id`,
+    [tenantId, usuarioId ?? null],
+  );
+  return r.rows.map((f) => ({
+    usuarioId: f.usuario_id,
+    nombre: f.nombre,
+    email: f.email,
+    rol: f.rol,
+    admin: f.admin,
+    mfaActivo: f.mfa_activo,
+    debeCambiarPassword: f.debe_cambiar_password,
+    perfilMedico: f.tiene_perfil
+      ? {
+          cedulaProfesional: f.cedula_profesional,
+          especialidad: f.especialidad,
+          cedulaEspecialidad: f.cedula_especialidad,
+          institucion: f.institucion,
+        }
+      : null,
+  }));
 }
 
 const yaMiembro = (): AppError => new AppError('CONFLICTO', 'La persona ya es miembro del consultorio', 409);
@@ -20,8 +68,14 @@ export const miembrosRoutes: FastifyPluginAsync<MiembrosRoutesOptions> = async (
   const idPorEmail = async (email: string): Promise<string | undefined> =>
     (await pool.query<{ id: string }>('SELECT id FROM "user" WHERE email = $1', [email])).rows[0]?.id;
 
+  // Cualquier miembro autenticado.
+  app.get('/miembros', async (req) => {
+    const { tenantId } = req.ctx;
+    return { miembros: await withTenant(pool, tenantId, (tx) => leerMiembros(tx, tenantId)) };
+  });
+
   app.post('/miembros', { preHandler: requireAdmin() }, async (req, reply) => {
-    const input = miembroSchema.parse(req.body);
+    const input = altaMiembroSchema.parse(req.body);
     const { tenantId, usuarioId: actorId, traceId } = req.ctx;
 
     // Antes de crear cuentas: el actor debe seguir siendo admin en la BD (el token vale hasta 15 min).
@@ -76,6 +130,36 @@ export const miembrosRoutes: FastifyPluginAsync<MiembrosRoutesOptions> = async (
       throw isUniqueViolation(err) ? yaMiembro() : err;
     }
     return reply.code(201).send({ usuarioId: vinculado, rol: input.rol, admin: input.admin });
+  });
+
+  app.patch('/miembros/:usuarioId', { preHandler: requireAdmin() }, async (req) => {
+    const usuarioId = uuidSchema.parse((req.params as { usuarioId?: unknown }).usuarioId);
+    const cambio = editarMiembroSchema.parse(req.body);
+    const { tenantId, usuarioId: actorId, traceId } = req.ctx;
+
+    return withTenant(pool, tenantId, async (tx) => {
+      // Mismo bloqueo que DELETE: PATCH y DELETE se serializan y la segunda operación ve el resultado de la primera.
+      const admins = await tx.query<{ usuario_id: string }>(
+        'SELECT usuario_id FROM membresia WHERE tenant_id = $1 AND admin = true ORDER BY usuario_id FOR UPDATE',
+        [tenantId],
+      );
+      if (!admins.rows.some((a) => a.usuario_id === actorId)) throw new AppError('PROHIBIDO', 'Acceso prohibido', 403);
+      const objetivo = (
+        await tx.query<{ rol: Miembro['rol']; admin: boolean }>('SELECT rol, admin FROM membresia WHERE tenant_id = $1 AND usuario_id = $2', [tenantId, usuarioId])
+      ).rows[0];
+      if (!objetivo) throw new AppError('NO_ENCONTRADO', 'Miembro no encontrado', 404);
+      if (cambio.admin === false && !puedeQuitarAdmin({ esAdminObjetivo: objetivo.admin, admins: admins.rowCount ?? 0 })) {
+        throw new AppError('CONFLICTO', 'No se puede quitar el permiso al último administrador', 409);
+      }
+      const rol = cambio.rol ?? objetivo.rol;
+      const admin = cambio.admin ?? objetivo.admin;
+      // perfil_medico no se toca: al volver a médico conserva su cédula.
+      await tx.query('UPDATE membresia SET rol = $3, admin = $4 WHERE tenant_id = $1 AND usuario_id = $2', [tenantId, usuarioId, rol, admin]);
+      const miembro = (await leerMiembros(tx, tenantId, usuarioId))[0];
+      if (!miembro) throw new AppError('NO_ENCONTRADO', 'Miembro no encontrado', 404);
+      await enqueueEvent(tx, MiembroActualizado.create({ tenantId, actorId, traceId, data: { usuarioId, nombre: miembro.nombre, rol, admin } }));
+      return miembro;
+    });
   });
 
   app.delete('/miembros/:usuarioId', { preHandler: requireAdmin() }, async (req, reply) => {
