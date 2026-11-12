@@ -1,0 +1,176 @@
+// @vitest-environment node
+import { z } from 'zod';
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
+import { crearAlmacenCookies } from '../apoyo/cookies-falsas.js';
+
+const falsas = vi.hoisted(() => ({ ref: undefined as unknown }));
+vi.mock('next/headers', () => ({ cookies: async () => falsas.ref }));
+
+const { llamarGateway, ipDelCliente } = await import('@/lib/api/gateway');
+
+const c = crearAlmacenCookies();
+falsas.ref = c.almacen;
+const fetchFalso = vi.fn<typeof fetch>();
+
+function respuestaJson(status: number, cuerpo: unknown): Response {
+  return new Response(JSON.stringify(cuerpo), { status, headers: { 'content-type': 'application/json' } });
+}
+
+function peticion(i = 0): { url: string; init: RequestInit; headers: Headers } {
+  const [url, init = {}] = fetchFalso.mock.calls[i] ?? [];
+  return { url: String(url), init, headers: new Headers(init.headers) };
+}
+
+beforeEach(() => {
+  c.limpiar();
+  fetchFalso.mockReset();
+  vi.stubGlobal('fetch', fetchFalso);
+  vi.stubEnv('GATEWAY_URL', 'http://gateway:8080');
+});
+afterEach(() => {
+  vi.unstubAllGlobals();
+  vi.unstubAllEnvs();
+});
+
+const esquema = z.object({ id: z.string() });
+
+describe('llamarGateway', () => {
+  test('llamarGateway agrega Bearer con auth token y valida con esquema', async () => {
+    c.poner('token_consultorio', 'jwt.del.tenant');
+    fetchFalso.mockResolvedValue(respuestaJson(200, { id: 'c1', extra: 'se descarta' }));
+
+    const r = await llamarGateway('/api/identidad/consultorio', { auth: 'token', esquema });
+
+    expect(r).toEqual({ ok: true, datos: { id: 'c1' } });
+    const p = peticion();
+    expect(p.url).toBe('http://gateway:8080/api/identidad/consultorio');
+    expect(p.init.method).toBe('GET');
+    expect(p.headers.get('authorization')).toBe('Bearer jwt.del.tenant');
+    expect(p.headers.get('cookie')).toBeNull();
+  });
+
+  test('respuesta que no cumple el esquema → ok:false 502 INTERNO', async () => {
+    c.poner('token_consultorio', 't');
+    fetchFalso.mockResolvedValue(respuestaJson(200, { id: 42 }));
+
+    const r = await llamarGateway('/api/agenda/citas', { auth: 'token', esquema });
+
+    expect(r).toMatchObject({ ok: false, status: 502, error: { code: 'INTERNO' } });
+  });
+
+  test('error de red → ok:false 503', async () => {
+    fetchFalso.mockRejectedValue(new TypeError('fetch failed'));
+
+    const r = await llamarGateway('/api/agenda/citas', { auth: 'token' });
+
+    expect(r).toMatchObject({ ok: false, status: 503, error: { code: 'INTERNO' } });
+  });
+
+  test('cookie de sesión solo se envía a /api/identidad/', async () => {
+    c.poner('better-auth.session_token', 'abc.firma/+=');
+    c.poner('better-auth.two_factor', 'xyz');
+    c.poner('consultorio_id', 'no-se-reenvia');
+    fetchFalso.mockImplementation(async () => respuestaJson(200, {}));
+
+    await llamarGateway('/api/identidad/tenants/mios', { auth: 'sesion' });
+    await llamarGateway('/api/agenda/citas', { auth: 'sesion' });
+
+    expect(peticion(0).headers.get('cookie')).toBe('better-auth.session_token=abc.firma%2F%2B%3D; better-auth.two_factor=xyz');
+    expect(peticion(1).headers.get('cookie')).toBeNull();
+  });
+
+  test('sin token no agrega Authorization; sin sesión no agrega Cookie', async () => {
+    fetchFalso.mockImplementation(async () => respuestaJson(200, {}));
+
+    await llamarGateway('/api/agenda/citas', { auth: 'token' });
+    await llamarGateway('/api/identidad/tenants/mios', { auth: 'sesion' });
+
+    expect(peticion(0).headers.get('authorization')).toBeNull();
+    expect(peticion(1).headers.get('cookie')).toBeNull();
+  });
+
+  test('cabecera de cookie explícita (proxy) sustituye a las cookies de la petición', async () => {
+    c.poner('better-auth.session_token', 'de-next');
+    fetchFalso.mockResolvedValue(respuestaJson(200, { token: 't' }));
+
+    await llamarGateway('/api/identidad/sesion/tenant', {
+      metodo: 'POST',
+      auth: 'sesion',
+      cabeceraCookie: 'better-auth.session_token=del-proxy',
+    });
+
+    expect(peticion().headers.get('cookie')).toBe('better-auth.session_token=del-proxy');
+  });
+
+  test('envía el cuerpo como JSON, X-Forwarded-For y método', async () => {
+    c.poner('token_consultorio', 't');
+    fetchFalso.mockResolvedValue(new Response(null, { status: 204 }));
+
+    const r = await llamarGateway('/api/agenda/citas/1', {
+      metodo: 'PATCH',
+      cuerpo: { estado: 'confirmada' },
+      auth: 'token',
+      ip: '203.0.113.7, 10.0.0.2',
+    });
+
+    expect(r).toEqual({ ok: true, datos: undefined });
+    const p = peticion();
+    expect(p.init.method).toBe('PATCH');
+    expect(p.init.body).toBe('{"estado":"confirmada"}');
+    expect(p.headers.get('content-type')).toBe('application/json');
+    expect(p.headers.get('x-forwarded-for')).toBe('203.0.113.7, 10.0.0.2');
+  });
+
+  test('error del gateway con formato de la API → status y error tal cual', async () => {
+    fetchFalso.mockResolvedValue(respuestaJson(409, { code: 'HORARIO_OCUPADO', message: 'Ocupado' }));
+
+    const r = await llamarGateway('/api/agenda/citas', { metodo: 'POST', cuerpo: {}, auth: 'token' });
+
+    expect(r).toEqual({ ok: false, status: 409, error: { code: 'HORARIO_OCUPADO', message: 'Ocupado' } });
+  });
+
+  test('entrega los set-cookie con auth sesion o ninguna, nunca con token', async () => {
+    const conCookies = () => {
+      const h = new Headers({ 'content-type': 'application/json' });
+      h.append('set-cookie', 'better-auth.session_token=s; Max-Age=600; Path=/; HttpOnly');
+      h.append('set-cookie', 'better-auth.session_data=d; Path=/');
+      return new Response('{}', { status: 200, headers: h });
+    };
+    fetchFalso.mockImplementation(async () => conCookies());
+
+    const ninguna = await llamarGateway('/api/identidad/auth/sign-in/email', { metodo: 'POST', cuerpo: {}, auth: 'ninguna' });
+    const sesion = await llamarGateway('/api/identidad/auth/sign-out', { metodo: 'POST', auth: 'sesion' });
+    const token = await llamarGateway('/api/identidad/consultorio', { auth: 'token' });
+
+    expect(ninguna.setCookies).toEqual([
+      'better-auth.session_token=s; Max-Age=600; Path=/; HttpOnly',
+      'better-auth.session_data=d; Path=/',
+    ]);
+    expect(sesion.setCookies).toHaveLength(2);
+    expect(token.setCookies).toBeUndefined();
+  });
+
+  test('cuerpo de error ilegible → 401 NO_AUTENTICADO / otros INTERNO', async () => {
+    fetchFalso.mockResolvedValueOnce(new Response('no es json', { status: 401 }));
+    fetchFalso.mockResolvedValueOnce(new Response('<html>', { status: 500 }));
+
+    const r401 = await llamarGateway('/api/identidad/auth/sign-in/email', { metodo: 'POST', cuerpo: {}, auth: 'ninguna' });
+    const r500 = await llamarGateway('/api/agenda/citas', { auth: 'token' });
+
+    expect(r401).toMatchObject({ ok: false, status: 401, error: { code: 'NO_AUTENTICADO' } });
+    expect(r500).toMatchObject({ ok: false, status: 500, error: { code: 'INTERNO' } });
+  });
+
+  test('sin GATEWAY_URL → error de configuración', async () => {
+    vi.stubEnv('GATEWAY_URL', '');
+
+    await expect(llamarGateway('/api/agenda/citas', { auth: 'token' })).rejects.toThrow('GATEWAY_URL');
+  });
+});
+
+describe('ipDelCliente', () => {
+  test('reenvía la cadena X-Forwarded-For completa (el gateway elige el último salto no confiable)', () => {
+    expect(ipDelCliente(new Headers({ 'x-forwarded-for': '198.51.100.1, 203.0.113.7' }))).toBe('198.51.100.1, 203.0.113.7');
+    expect(ipDelCliente(new Headers())).toBeUndefined();
+  });
+});

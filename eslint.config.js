@@ -1,6 +1,8 @@
 import { readdirSync, existsSync } from 'node:fs';
 import tseslint from 'typescript-eslint';
 import importPlugin from 'eslint-plugin-import';
+import nextPlugin from '@next/eslint-plugin-next';
+import reactHooks from 'eslint-plugin-react-hooks';
 
 // Un app no puede importar otro app: por cada apps/<x>, prohibir importar el resto de apps/.
 const apps = existsSync('apps') ? readdirSync('apps', { withFileTypes: true }).filter((d) => d.isDirectory()).map((d) => d.name) : [];
@@ -18,7 +20,7 @@ const zonas = [
 const patronesApps = apps.flatMap((app) => [`@consultorio/${app}`, `@consultorio/${app}/*`, `@consultorio/svc-${app}`, `@consultorio/svc-${app}/*`]);
 
 export default tseslint.config(
-  { ignores: ['**/node_modules/**', '**/dist/**', '**/coverage/**', '**/.turbo/**', '.superpowers/**'] },
+  { ignores: ['**/node_modules/**', '**/dist/**', '**/coverage/**', '**/.turbo/**', '.superpowers/**', '**/.next/**', '**/next-env.d.ts'] },
   ...tseslint.configs.recommended,
   {
     files: ['**/*.{ts,tsx,mts}'],
@@ -62,4 +64,12 @@ export default tseslint.config(
       ],
     },
   },
+  // Sitio web (Next.js + React): reglas de Next (core web vitals) y de hooks de React.
+  // `no-html-link-for-pages` es solo para el directorio pages/; el sitio usa App Router.
+  {
+    files: ['apps/web/**/*.{ts,tsx}'],
+    plugins: nextPlugin.configs['core-web-vitals'].plugins,
+    rules: { ...nextPlugin.configs['core-web-vitals'].rules, '@next/next/no-html-link-for-pages': 'off' },
+  },
+  { files: ['apps/web/**/*.{ts,tsx}'], ...reactHooks.configs.flat.recommended },
 );

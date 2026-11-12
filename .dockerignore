@@ -2,6 +2,7 @@
 **/dist
 **/coverage
 **/.turbo
+**/.next
 **/*.tsbuildinfo
 .git
 .env

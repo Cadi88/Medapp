@@ -49,7 +49,7 @@ services:
       retries: 20
 
   # --- Servicios de la aplicación (perfil `app`): docker compose --profile app up -d --build --wait ---
-  # Requieren .env (bash scripts/generar-dev-env.sh). Solo el gateway publica puerto.
+  # Requieren .env (bash scripts/generar-dev-env.sh). Solo el gateway (8080) y el sitio web (3000) publican puerto.
   svc-identidad:
     profiles: ["app"]
     build:
@@ -118,10 +118,33 @@ services:
       AGENDA_URL: http://svc-agenda:3004
       # En local todo llega de una sola IP: límite holgado para que la E2E repetida no choque con el rate limit.
       LIMITE_PUBLICO_POR_MIN: ${LIMITE_PUBLICO_POR_MIN:-1000}
+      # El sitio web llama al gateway desde la red de compose y reenvía X-Forwarded-For con la IP del cliente.
+      CONFIAR_EN_PROXY: 172.28.0.0/16
     depends_on:
       svc-identidad: { condition: service_healthy }
       svc-auditoria: { condition: service_healthy }
       svc-agenda: { condition: service_healthy }
+
+  # Sitio web (Next.js): el navegador habla solo con él; Next llama al gateway por la red interna.
+  web:
+    profiles: ["app"]
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.web
+    ports: ["3000:3000"]
+    environment:
+      GATEWAY_URL: http://gateway:8080
+      # En local es HTTP; en producción (HTTPS) va en "true".
+      COOKIE_SEGURA: "false"
+    depends_on:
+      gateway: { condition: service_healthy }
+
+# Subred fija de la red de compose: el gateway confía en ella (CONFIAR_EN_PROXY) para leer la IP que reenvía el sitio.
+networks:
+  default:
+    ipam:
+      config:
+        - subnet: 172.28.0.0/16
 
 volumes:
   pgdata:
