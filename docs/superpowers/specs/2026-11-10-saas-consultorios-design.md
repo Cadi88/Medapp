@@ -71,9 +71,9 @@ Estas restricciones son las de México. Las de Bolivia están en §1.6.
 ### 2.1 Diagrama
 ```
                  ┌──────────────────────────────┐
-  Médico/recepción│  web (Next.js)               │  Paciente
-  ───────────────▶│  · app del consultorio       │◀──────────── reserva en línea
-                 │  · páginas públicas de reserva│
+  Médico/recepción│  web (Next.js)               │  Paciente (sin cuenta):
+  ───────────────▶│  · app del consultorio       │◀── solo responde recordatorios
+                 │    (uso privado)             │    y la farmacia verifica recetas
                  └──────────────┬───────────────┘
                                 │ HTTPS (JWT)
                  ┌──────────────▼───────────────┐
@@ -96,12 +96,12 @@ Estas restricciones son las de México. Las de Bolivia están en §1.6.
 ### 2.2 Servicios
 | Servicio | Responsabilidad | Dueño de los datos |
 |---|---|---|
-| **gateway** | Único punto de entrada: verifica JWT, resuelve tenant activo, rate limiting, enrutamiento, rutas públicas de reserva | Sin base de datos |
-| **identidad** | Consultorios (tenants), usuarios, membresías, roles, perfil del médico (cédula, especialidad), plan y suscripción SaaS, autenticación (Better Auth, MFA para médicos) | `identidad_db` |
-| **agenda** | Horarios por médico, bloqueos, disponibilidad, citas, reserva pública | `agenda_db` |
+| **gateway** | Único punto de entrada: verifica JWT, resuelve tenant activo, rate limiting, enrutamiento. Las únicas rutas públicas son las de registro/login, la respuesta del paciente a un recordatorio (con token firmado) y la verificación de recetas | Sin base de datos |
+| **identidad** | Consultorios (tenants), usuarios, membresías, roles, perfil del médico (cédula, especialidad), **personalización del consultorio** (logo, color, datos de contacto), plan y suscripción SaaS, autenticación (Better Auth, MFA para médicos) | `identidad_db` + S3 (logos) |
+| **agenda** | Horarios por médico, bloqueos, disponibilidad, citas (las agenda el personal del consultorio) | `agenda_db` |
 | **expediente** | Pacientes, historia clínica, consultas (notas SOAP), signos vitales, diagnósticos CIE-10, adjuntos, firma, adendas, **receta** | `expediente_db` + S3 |
 | **facturacion** | Cobros, caja, facturas CFDI 4.0 vía PAC, cancelaciones | `facturacion_db` + S3 |
-| **notificaciones** | Envío de WhatsApp/SMS/email; recordatorios programados; webhooks de respuesta del paciente | `notificaciones_db` |
+| **notificaciones** | Recordatorios de cita detrás de un adaptador de canal (correo automático, WhatsApp asistido y, al monetizar, WhatsApp automático); registro de la respuesta del paciente | `notificaciones_db` |
 | **auditoria** | Bitácora append-only con encadenamiento hash por tenant; consume eventos de todos los servicios | `auditoria_db` |
 
 ### 2.3 Reglas de arquitectura
@@ -150,7 +150,7 @@ Regla de dependencias: `apps/svc-*` pueden depender de `packages/*`, nunca de ot
 ### 3.2 identidad
 | Tabla | Campos clave |
 |---|---|
-| `tenant` | id, nombre, slug público, **pais** (`MX`, `BO`), **moneda** (`MXN`, `BOB`), zona_horaria, plan, estado_suscripcion — ver §3.9 |
+| `tenant` | id, nombre, slug público, **pais** (`MX`, `BO`), **moneda** (`MXN`, `BOB`), zona_horaria, plan, estado_suscripcion — ver §3.9; personalización: nombre_comercial, logo_key (S3), color_primario, direccion, telefono |
 | `usuario` | id, email, nombre, mfa_activo |
 | `membresia` | usuario_id, tenant_id, rol (`medico`, `recepcion`), admin (boolean) — ver [Fase 1 · Entrega 1](2026-11-11-fase-1a-web-agenda-design.md) §2.1 |
 | `perfil_medico` | usuario_id, tenant_id, cedula_profesional, especialidad, cedula_especialidad, institucion — en Bolivia `cedula_profesional` guarda la matrícula profesional; la validación depende del país (§3.9) |
@@ -163,7 +163,7 @@ En `identidad`, las tablas `tenant` y `usuario` son globales (sin RLS por tenant
 |---|---|
 | `horario` | medico_id, dia_semana, hora_inicio, hora_fin (la duración vive en `tipo_cita`; ver Fase 1 · Entrega 1 §3.1) |
 | `bloqueo` | medico_id, rango (`tstzrange`), motivo |
-| `cita` | medico_id, rango (`tstzrange`), estado, contacto (nombre, teléfono, email), paciente_ref (nullable, id en expediente), origen (`recepcion`, `reserva_publica`) |
+| `cita` | medico_id, rango (`tstzrange`), estado, contacto (nombre, teléfono, email), paciente_ref (nullable, id en expediente), origen (`recepcion`), pide_cambio (el paciente pidió moverla; recepción lo atiende) |
 
 - Estados de cita: `agendada → confirmada → atendida`, o `cancelada` / `no_asistio`.
 - **Sin doble reserva:** `EXCLUDE USING gist (tenant_id WITH =, medico_id WITH =, rango WITH &&) WHERE (estado NOT IN ('cancelada'))` (requiere la extensión `btree_gist`).
@@ -207,8 +207,13 @@ Reglas:
 ### 3.6 notificaciones
 | Tabla | Campos clave |
 |---|---|
-| `plantilla` | canal, tipo (`confirmacion`, `recordatorio`, `receta`, `factura`), contenido |
-| `envio` | canal, destinatario, tipo, referencia (cita/receta/factura), estado, proveedor_id, intentos |
+| `plantilla` | canal, tipo (`recordatorio`, `receta`, `factura`), contenido |
+| `envio` | canal (`correo`, `whatsapp_asistido`, `whatsapp_api`), destinatario, tipo, referencia (cita/receta/factura), estado, proveedor_id, intentos, respuesta (`confirma`, `cancela`, `pide_cambio`) |
+
+**Canales de recordatorio (decisión 2026-11-12):** todos detrás de una interfaz `CanalRecordatorio`.
+- **Correo automático** (gratis con un proveedor de capa gratuita): se envía solo el día anterior; trae botones "Confirmar", "Cancelar" y "Pedir cambio" que abren una página mínima con token firmado y de un solo uso (sin acceso a la app ni datos clínicos).
+- **WhatsApp asistido** ($0): la agenda muestra las citas de mañana con un botón que abre el WhatsApp del consultorio con el mensaje ya escrito; el asistente lo envía y registra la respuesta del paciente en la cita con un clic.
+- **WhatsApp automático** (API oficial de Meta, costo por mensaje): se activa cuando haya clientes que paguen, sin cambiar el resto del sistema.
 
 ### 3.7 auditoria
 | Tabla | Campos clave |
@@ -286,14 +291,14 @@ Formato común (definido en `packages/contracts`):
 
 ## 5. Flujos principales
 
-### 5.1 Reserva y recordatorio
-1. El paciente abre `/c/{slug}`; el gateway sirve disponibilidad desde agenda (ruta pública con rate limit por IP).
-2. agenda crea la cita; el `EXCLUDE` rechaza el horario si fue tomado concurrentemente (el paciente ve "horario no disponible" y elige otro). Escribe `cita.creada` en outbox.
-3. notificaciones envía confirmación por WhatsApp y programa recordatorio 24 h antes (pg-boss).
-4. El paciente responde "Confirmar"/"Cancelar" → webhook en notificaciones → `cita.respuesta_paciente` → agenda actualiza el estado.
+### 5.1 Agendar, recordar y atender
+1. El paciente llama; el médico o el asistente agenda la cita en la app (estado `agendada`). agenda escribe `cita.creada` en outbox.
+2. El día anterior, notificaciones envía el recordatorio por el canal del consultorio (§3.6): correo automático y/o WhatsApp asistido.
+3. La respuesta del paciente (por la página del correo o registrada por el asistente) produce `cita.respuesta_paciente` → agenda pasa la cita a `confirmada` o `cancelada`, o la marca `pide_cambio` para que recepción le llame y la reprograme.
+4. El día de la cita, el médico ve **"Mi día"**: sus citas de hoy en orden con su estado. También ve las citas futuras pendientes de reconfirmar y, desde cada cita pasada, lo que se registró en el expediente (Fase 2).
 
 ### 5.2 Consulta → receta → cobro
-1. Recepción vincula la cita a un paciente existente o crea uno en expediente (la reserva pública no crea expedientes).
+1. Recepción vincula la cita a un paciente existente o crea uno en expediente.
 2. El médico abre la consulta en `borrador`: SOAP, signos vitales, CIE-10, medicamentos.
 3. Al firmar, en una sola transacción de expediente: consulta → `firmada`, receta con folio, `consulta.firmada` y `receta.emitida` en outbox.
 4. Reacciones: agenda marca la cita `atendida`; facturacion crea `cobro` pendiente; auditoria registra; una tarea genera el PDF de la receta.
@@ -371,7 +376,7 @@ Regla: ningún servicio se despliega si falla su prueba de aislamiento entre ten
 | Fase | Contenido | Resultado |
 |---|---|---|
 | **0 · Plataforma** | Monorepo, `contracts`, `platform` (tenant/RLS, outbox/inbox, auth, observabilidad), gateway, identidad (registro de consultorio, usuarios, roles, MFA), auditoria, docker compose, CI/CD, infraestructura base | Base técnica |
-| **1 · Agenda** | agenda + notificaciones, reserva pública, recordatorios WhatsApp con respaldo SMS/email | Agenda en línea vendible; pilotos gratuitos |
+| **1 · Agenda** | Entrega 1: sitio web del consultorio + agenda interna (hecha). Entrega 2: personalización del consultorio (logo, color, datos de contacto). Entrega 3: recordatorios con respuesta del paciente (correo automático + WhatsApp asistido) y la vista "Mi día" del médico | Agenda vendible; pilotos gratuitos |
 | **2 · Expediente** | expediente + receta: pacientes, historia clínica, SOAP, signos vitales, CIE-10, firma, adendas, receta con QR, adjuntos | Producto principal |
 | **3 · Facturación** | facturacion: cobros, caja, CFDI 4.0, cancelaciones; suscripción SaaS con Stripe | Producto completo, cobrando |
 | **4 · Bolivia** | Reglas `bo.ts`, plantilla de expediente boliviana, adaptador SIAT, cobro local de la suscripción, "Bolivia" habilitado en el registro (§3.9) | Venta en Bolivia |
@@ -379,6 +384,7 @@ Regla: ningún servicio se despliega si falla su prueba de aislamiento entre ten
 Cada fase tendrá su propio plan de implementación.
 
 ## 10. Fuera de alcance del MVP
+- **Reserva en línea y páginas públicas para pacientes** (decisión de producto, 2026-11-12): la app es de uso privado del consultorio; las citas las agenda el médico o el asistente. Las únicas páginas sin sesión son la respuesta a un recordatorio y la verificación de recetas.
 - Interoperabilidad HL7/CDA y firma con e.firma (se agregan para la certificación NOM-024).
 - Portal del paciente.
 - Múltiples sucursales por consultorio.

@@ -13,8 +13,8 @@ La Fase 1 del diseño general (Agenda) se divide en tres entregas, cada una con 
 | Entrega | Contenido |
 |---|---|
 | **1 (esta)** | Sitio web del consultorio + agenda interna (citas creadas por el personal) |
-| 2 | Página pública de reserva para pacientes |
-| 3 | Recordatorios y confirmaciones (email, WhatsApp, SMS) |
+| 2 | Personalización del consultorio (logo, color, datos de contacto). Sustituye a la reserva pública, que salió del alcance el 2026-11-12 |
+| 3 | Recordatorios con respuesta del paciente (correo automático + WhatsApp asistido) y la vista "Mi día" del médico |
 
 **Objetivo:** tener un producto visible que un consultorio piloto pueda usar a diario para manejar su agenda.
 
@@ -100,7 +100,7 @@ Sigue el patrón de la Fase 0: Fastify 5, `createHttpApp`, `platformPlugin`, `ag
 | `bloqueo` | id, tenant_id, medico_id, rango (`tstzrange`), motivo | `CHECK (NOT isempty(rango))` |
 | `cita` | id, tenant_id, medico_id, tipo_cita_id, rango (`tstzrange`), estado, contacto_nombre, contacto_telefono, contacto_email (nullable), notas (nullable), fuera_de_horario boolean, origen (`recepcion`), creada_por, version int | `EXCLUDE USING gist (tenant_id WITH =, medico_id WITH =, rango WITH &&) WHERE (estado <> 'cancelada')` (extensión `btree_gist`) |
 
-Todas las fechas se guardan en UTC (`timestamptz`) y los ids son UUIDv7. `origen` admite solo `recepcion` en esta entrega. La entrega 2 agrega `reserva_publica`.
+Todas las fechas se guardan en UTC (`timestamptz`) y los ids son UUIDv7. `origen` admite solo `recepcion` (la reserva pública salió del alcance del producto el 2026-11-12).
 
 ### 3.2 Reglas de dominio (funciones puras, sin I/O)
 
@@ -262,7 +262,7 @@ Cobertura mínima de **80% en líneas y ramas** por paquete, incluido `apps/web`
 
 ## 8. Fuera de alcance
 
-Reserva pública (entrega 2); recordatorios, correos y WhatsApp (entrega 3); pacientes y expediente (Fase 2); cobros (Fase 3); citas recurrentes; salas o equipos como recurso; varias sucursales; app móvil nativa; sincronización con Google Calendar; invitaciones por correo; recuperación de contraseña por correo (el admin la reinicia, §2.2).
+Reserva pública (fuera del producto); personalización del consultorio (entrega 2); recordatorios, correos y WhatsApp (entrega 3); pacientes y expediente (Fase 2); cobros (Fase 3); citas recurrentes; salas o equipos como recurso; varias sucursales; app móvil nativa; sincronización con Google Calendar; invitaciones por correo; recuperación de contraseña por correo (el admin la reinicia, §2.2).
 
 ---
 
