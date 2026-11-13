@@ -353,6 +353,9 @@ importers:
       '@opentelemetry/sdk-node':
         specifier: ^0.301.1
         version: 0.301.1(@opentelemetry/api@1.10.0)(supports-color@7.2.0)
+      '@smithy/node-http-handler':
+        specifier: ^4.14.2
+        version: 4.14.2
       fastify:
         specifier: ^5.12.8
         version: 5.12.8

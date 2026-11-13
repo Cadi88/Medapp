@@ -6,11 +6,18 @@ import {
   PutObjectCommand,
   S3Client,
 } from '@aws-sdk/client-s3';
+import { NodeHttpHandler } from '@smithy/node-http-handler';
 import type { Almacen, ConfigAlmacen } from './almacen.js';
 
-function crearCliente(c: ConfigAlmacen): S3Client {
+/** Sin tiempos límite un almacenamiento colgado dejaría colgadas las solicitudes del servicio. */
+const CONEXION_MS = 2000;
+const SOLICITUD_MS = 5000;
+
+export function crearCliente(c: ConfigAlmacen): S3Client {
   return new S3Client({
     region: c.region,
+    maxAttempts: 2,
+    requestHandler: new NodeHttpHandler({ connectionTimeout: CONEXION_MS, requestTimeout: SOLICITUD_MS }),
     ...(c.endpoint
       ? {
           endpoint: c.endpoint,
