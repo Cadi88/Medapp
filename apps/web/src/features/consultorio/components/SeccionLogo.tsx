@@ -10,11 +10,12 @@ import { LogoConsultorio } from './LogoConsultorio';
 
 interface Props {
   nombre: string;
+  consultorioId: string;
   logoVersion: number;
 }
 
 /** Vista previa del logo actual, "Cambiar" (elige y sube) y "Quitar". El archivo se valida aquí antes de enviarlo. */
-export function SeccionLogo({ nombre, logoVersion }: Props) {
+export function SeccionLogo({ nombre, consultorioId, logoVersion }: Props) {
   const formulario = useRef<HTMLFormElement>(null);
   const entrada = useRef<HTMLInputElement>(null);
   const [errorLocal, setErrorLocal] = useState<string>();
@@ -26,8 +27,10 @@ export function SeccionLogo({ nombre, logoVersion }: Props) {
     if (!archivo) return;
     const error = errorDeLogo(archivo);
     setErrorLocal(error);
-    if (error) e.target.value = '';
-    else formulario.current?.requestSubmit();
+    if (!error) formulario.current?.requestSubmit();
+    // El envío ya tomó el archivo; se vacía el selector para que elegir el mismo archivo otra vez (tras un error o una
+    // subida) vuelva a disparar onChange.
+    e.target.value = '';
   };
 
   return (
@@ -35,8 +38,7 @@ export function SeccionLogo({ nombre, logoVersion }: Props) {
       <h2 className="text-lg font-medium">Logo</h2>
       <div className="flex min-h-16 items-center rounded-md border p-3">
         {logoVersion > 0 ? (
-          // `key`: un logo nuevo vuelve a intentar la carga aunque el anterior hubiera fallado.
-          <LogoConsultorio key={logoVersion} nombre={nombre} logoVersion={logoVersion} className="max-h-24 w-auto max-w-60 object-contain" />
+          <LogoConsultorio nombre={nombre} consultorioId={consultorioId} logoVersion={logoVersion} className="max-h-24 w-auto max-w-60 object-contain" />
         ) : (
           <p className="text-sm text-muted-foreground">Sin logo</p>
         )}

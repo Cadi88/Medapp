@@ -10,7 +10,7 @@ export default async function ConsultorioPage() {
     <div className="grid gap-8">
       <h1 className="text-2xl font-semibold">Mi consultorio</h1>
       <FormularioPersonalizacion consultorio={consultorio} />
-      <SeccionLogo nombre={consultorio.nombreComercial ?? consultorio.nombre} logoVersion={consultorio.logoVersion} />
+      <SeccionLogo nombre={consultorio.nombreComercial ?? consultorio.nombre} consultorioId={consultorio.id} logoVersion={consultorio.logoVersion} />
     </div>
   );
 }

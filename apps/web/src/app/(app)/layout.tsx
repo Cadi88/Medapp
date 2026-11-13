@@ -15,6 +15,7 @@ export default async function AppLayout({ children }: Readonly<{ children: React
       <BarraDeNavegacion
         opciones={opcionesDeMenu(claims)}
         consultorio={consultorio.nombreComercial ?? consultorio.nombre}
+        consultorioId={consultorio.id}
         logoVersion={consultorio.logoVersion}
       />
       <main className="mx-auto max-w-7xl p-4">{children}</main>

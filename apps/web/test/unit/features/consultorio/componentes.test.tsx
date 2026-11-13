@@ -83,16 +83,16 @@ describe('SeccionLogo', () => {
   const archivoDe = (n: number, type: string) => new File([new Uint8Array(n)], 'logo', { type });
 
   test('sin logo no hay imagen ni "Quitar"; con logo muestra la imagen versionada', () => {
-    const { rerender } = render(<SeccionLogo nombre="Dental Sol" logoVersion={0} />);
+    const { rerender } = render(<SeccionLogo nombre="Dental Sol" consultorioId={consultorio.id} logoVersion={0} />);
     expect(screen.queryByRole('img')).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Quitar' })).not.toBeInTheDocument();
-    rerender(<SeccionLogo nombre="Dental Sol" logoVersion={3} />);
-    expect(screen.getByRole('img', { name: 'Logo de Dental Sol' })).toHaveAttribute('src', '/consultorio/logo?v=3');
+    rerender(<SeccionLogo nombre="Dental Sol" consultorioId={consultorio.id} logoVersion={3} />);
+    expect(screen.getByRole('img', { name: 'Logo de Dental Sol' })).toHaveAttribute('src', `/consultorio/logo?c=${consultorio.id}&v=3`);
     expect(screen.getByRole('button', { name: 'Quitar' })).toBeInTheDocument();
   });
 
   test('un archivo de 1.5 MB se rechaza en el cliente sin enviar nada', async () => {
-    const { container } = render(<SeccionLogo nombre="Dental Sol" logoVersion={0} />);
+    const { container } = render(<SeccionLogo nombre="Dental Sol" consultorioId={consultorio.id} logoVersion={0} />);
     const entrada = container.querySelector('input[type="file"]') as HTMLInputElement;
     await userEvent.upload(entrada, archivoDe(1_500_000, 'image/png'), { applyAccept: false });
     expect(await screen.findByText('El logo debe pesar menos de 1 MB')).toBeInTheDocument();
@@ -100,7 +100,7 @@ describe('SeccionLogo', () => {
   });
 
   test('un tipo no permitido se rechaza en el cliente', async () => {
-    const { container } = render(<SeccionLogo nombre="Dental Sol" logoVersion={0} />);
+    const { container } = render(<SeccionLogo nombre="Dental Sol" consultorioId={consultorio.id} logoVersion={0} />);
     const entrada = container.querySelector('input[type="file"]') as HTMLInputElement;
     await userEvent.upload(entrada, archivoDe(10, 'image/gif'), { applyAccept: false });
     expect(await screen.findByText('Sube una imagen PNG, JPG o WebP')).toBeInTheDocument();
@@ -109,15 +109,26 @@ describe('SeccionLogo', () => {
 
   test('un archivo válido se envía a la acción', async () => {
     acciones.subirLogo.mockResolvedValue({ ok: true });
-    const { container } = render(<SeccionLogo nombre="Dental Sol" logoVersion={0} />);
+    const { container } = render(<SeccionLogo nombre="Dental Sol" consultorioId={consultorio.id} logoVersion={0} />);
     const entrada = container.querySelector('input[type="file"]') as HTMLInputElement;
     await userEvent.upload(entrada, archivoDe(100, 'image/png'));
     await waitFor(() => expect(acciones.subirLogo).toHaveBeenCalledTimes(1));
     expect(await screen.findByText('Logo actualizado')).toBeInTheDocument();
   });
 
+  test('tras elegir un archivo se vacía el selector: el mismo archivo se puede elegir otra vez', async () => {
+    acciones.subirLogo.mockResolvedValue({ ok: true });
+    const { container } = render(<SeccionLogo nombre="Dental Sol" consultorioId={consultorio.id} logoVersion={0} />);
+    const entrada = container.querySelector('input[type="file"]') as HTMLInputElement;
+    await userEvent.upload(entrada, archivoDe(100, 'image/png'));
+    await waitFor(() => expect(acciones.subirLogo).toHaveBeenCalledTimes(1));
+    expect(entrada.files).toHaveLength(0);
+    await userEvent.upload(entrada, archivoDe(100, 'image/png'));
+    await waitFor(() => expect(acciones.subirLogo).toHaveBeenCalledTimes(2));
+  });
+
   test('"Cambiar" abre el selector de archivos', async () => {
-    const { container } = render(<SeccionLogo nombre="Dental Sol" logoVersion={0} />);
+    const { container } = render(<SeccionLogo nombre="Dental Sol" consultorioId={consultorio.id} logoVersion={0} />);
     const entrada = container.querySelector('input[type="file"]') as HTMLInputElement;
     const clic = vi.spyOn(entrada, 'click');
     await userEvent.click(screen.getByRole('button', { name: 'Cambiar' }));
@@ -126,33 +137,49 @@ describe('SeccionLogo', () => {
 
   test('"Quitar" llama a quitarLogo y muestra su error', async () => {
     acciones.quitarLogo.mockResolvedValue({ mensaje: 'Ocurrió un error. Intenta de nuevo.' });
-    render(<SeccionLogo nombre="Dental Sol" logoVersion={2} />);
+    render(<SeccionLogo nombre="Dental Sol" consultorioId={consultorio.id} logoVersion={2} />);
     await userEvent.click(screen.getByRole('button', { name: 'Quitar' }));
     expect(await screen.findByRole('alert')).toHaveTextContent('Ocurrió un error. Intenta de nuevo.');
     expect(acciones.quitarLogo).toHaveBeenCalled();
   });
 
   test('Review Focus 5: logo quitado (logoVersion>0 pero 404) → la imagen se oculta', () => {
-    render(<SeccionLogo nombre="Dental Sol" logoVersion={2} />);
+    render(<SeccionLogo nombre="Dental Sol" consultorioId={consultorio.id} logoVersion={2} />);
     fireEvent.error(screen.getByRole('img', { name: 'Logo de Dental Sol' }));
     expect(screen.queryByRole('img')).not.toBeInTheDocument();
   });
 });
 
 describe('BarraDeNavegacion con el consultorio personalizado', () => {
+  test('dos consultorios con la misma versión piden URL distinta', () => {
+    const { rerender } = render(<BarraDeNavegacion opciones={[]} consultorio="A" consultorioId="id-a" logoVersion={1} />);
+    const a = screen.getByRole('img').getAttribute('src');
+    rerender(<BarraDeNavegacion opciones={[]} consultorio="B" consultorioId="id-b" logoVersion={1} />);
+    expect(screen.getByRole('img').getAttribute('src')).not.toBe(a);
+  });
+
+  test('tras un error de carga, un logo nuevo (otra versión) vuelve a mostrarse', () => {
+    const { rerender } = render(<BarraDeNavegacion opciones={[]} consultorio="Sonrisas" consultorioId={consultorio.id} logoVersion={4} />);
+    fireEvent.error(screen.getByRole('img'));
+    expect(screen.queryByRole('img')).not.toBeInTheDocument();
+    rerender(<BarraDeNavegacion opciones={[]} consultorio="Sonrisas" consultorioId={consultorio.id} logoVersion={5} />);
+    expect(screen.getByRole('img').getAttribute('src')).toBe(`/consultorio/logo?c=${consultorio.id}&v=5`);
+  });
+
+
   test('con logoVersion > 0 muestra el logo versionado junto al nombre', () => {
-    render(<BarraDeNavegacion opciones={[]} consultorio="Sonrisas" logoVersion={4} />);
-    expect(screen.getByRole('img', { name: 'Logo de Sonrisas' })).toHaveAttribute('src', '/consultorio/logo?v=4');
+    render(<BarraDeNavegacion opciones={[]} consultorio="Sonrisas" consultorioId={consultorio.id} logoVersion={4} />);
+    expect(screen.getByRole('img', { name: 'Logo de Sonrisas' })).toHaveAttribute('src', `/consultorio/logo?c=${consultorio.id}&v=4`);
     expect(screen.getByText('Sonrisas')).toBeInTheDocument();
   });
 
   test('sin logo (logoVersion 0) no hay imagen', () => {
-    render(<BarraDeNavegacion opciones={[]} consultorio="Sonrisas" logoVersion={0} />);
+    render(<BarraDeNavegacion opciones={[]} consultorio="Sonrisas" consultorioId={consultorio.id} logoVersion={0} />);
     expect(screen.queryByRole('img')).not.toBeInTheDocument();
   });
 
   test('Review Focus 5: si la imagen falla al cargar se oculta y queda el nombre', () => {
-    render(<BarraDeNavegacion opciones={[]} consultorio="Sonrisas" logoVersion={4} />);
+    render(<BarraDeNavegacion opciones={[]} consultorio="Sonrisas" consultorioId={consultorio.id} logoVersion={4} />);
     fireEvent.error(screen.getByRole('img', { name: 'Logo de Sonrisas' }));
     expect(screen.queryByRole('img')).not.toBeInTheDocument();
     expect(screen.getByText('Sonrisas')).toBeInTheDocument();

@@ -6,6 +6,7 @@ import {
   errorDeLogo,
   MAX_LOGO_BYTES,
 } from '@/features/consultorio/logica/formulario';
+import { urlDelLogo } from '@/features/consultorio/logica/logo';
 import { PALETA, variablesDeTema } from '@/features/consultorio/logica/tema';
 
 describe('tema', () => {
@@ -57,5 +58,15 @@ describe('cambiosDePersonalizacion', () => {
       nombreComercial: 'Nuevo',
       direccion: 'Calle 1',
     });
+  });
+});
+
+describe('urlDelLogo', () => {
+  test('dos consultorios con la misma versión tienen URL distinta (llave de caché por consultorio)', () => {
+    const a = urlDelLogo({ id: 'consultorio-a', logoVersion: 1 });
+    const b = urlDelLogo({ id: 'consultorio-b', logoVersion: 1 });
+    expect(a).toBe('/consultorio/logo?c=consultorio-a&v=1');
+    expect(b).not.toBe(a);
+    expect(urlDelLogo({ id: 'consultorio-a', logoVersion: 2 })).not.toBe(a);
   });
 });

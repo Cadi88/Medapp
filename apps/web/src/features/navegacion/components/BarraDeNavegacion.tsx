@@ -13,17 +13,18 @@ interface Props {
   opciones: OpcionDeMenu[];
   /** Nombre que se muestra: el nombre comercial o, sin él, el del consultorio. */
   consultorio: string;
+  consultorioId?: string;
   /** 0 = sin logo. */
   logoVersion?: number;
 }
 
-export function BarraDeNavegacion({ opciones, consultorio, logoVersion = 0 }: Props) {
+export function BarraDeNavegacion({ opciones, consultorio, consultorioId = '', logoVersion = 0 }: Props) {
   const ruta = usePathname();
   return (
     <header className="border-b bg-background">
       <div className="mx-auto flex max-w-7xl flex-wrap items-center gap-x-6 gap-y-2 px-4 py-3">
         <span className="flex items-center gap-2">
-          <LogoConsultorio nombre={consultorio} logoVersion={logoVersion} />
+          <LogoConsultorio nombre={consultorio} consultorioId={consultorioId} logoVersion={logoVersion} />
           <span className="font-semibold">{consultorio}</span>
         </span>
         <nav aria-label="Principal" className="flex flex-1 flex-wrap gap-1">

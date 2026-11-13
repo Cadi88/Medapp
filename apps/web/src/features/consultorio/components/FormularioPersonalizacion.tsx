@@ -39,7 +39,7 @@ export function FormularioPersonalizacion({ consultorio }: { consultorio: Consul
         error={estado.errores?.telefono}
       />
       <SelectorColor valor={color} onCambio={setColor} error={estado.errores?.colorPrimario} />
-      <VistaPreviaEncabezado nombre={mostrado} logoVersion={consultorio.logoVersion} color={color} />
+      <VistaPreviaEncabezado nombre={mostrado} consultorioId={consultorio.id} logoVersion={consultorio.logoVersion} color={color} />
       {estado.ok ? (
         <p role="status" className="text-sm text-muted-foreground">
           Cambios guardados
