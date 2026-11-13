@@ -3,6 +3,7 @@ import { z } from 'zod';
 import {
   MedicoActualizado,
   TenantCreado,
+  TenantCreadoV1,
   UsuarioDesvinculado,
   MiembroActualizado,
   UsuarioVinculado,
@@ -15,7 +16,7 @@ const T = '0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b';
 const U = '0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5c';
 
 const tenantData = { tenantId: T, nombre: 'Consultorio Uno', slug: 'uno', zonaHoraria: 'America/Mexico_City', adminUsuarioId: U };
-const crear = () => TenantCreado.create({ tenantId: T, actorId: U, traceId: 'abc', data: tenantData });
+const crear = () => TenantCreadoV1.create({ tenantId: T, actorId: U, traceId: 'abc', data: tenantData });
 
 describe('defineEvent / create', () => {
   test('create produce un sobre válido con UUIDv7 y fecha UTC', () => {
@@ -44,14 +45,14 @@ describe('defineEvent / create', () => {
   });
 
   test('actorId null es válido (acciones del sistema)', () => {
-    const e = TenantCreado.create({ tenantId: T, actorId: null, traceId: 't', data: tenantData });
+    const e = TenantCreadoV1.create({ tenantId: T, actorId: null, traceId: 't', data: tenantData });
     expect(e.actor_id).toBeNull();
-    expect(TenantCreado.parse(e).actor_id).toBeNull();
+    expect(TenantCreadoV1.parse(e).actor_id).toBeNull();
   });
 
   test('expone type y version de la definición', () => {
-    expect(TenantCreado.type).toBe('tenant.creado');
-    expect(TenantCreado.version).toBe(1);
+    expect(TenantCreadoV1.type).toBe('tenant.creado');
+    expect(TenantCreadoV1.version).toBe(1);
   });
 
   test('defineEvent soporta eventos nuevos', () => {
@@ -66,27 +67,27 @@ describe('parse', () => {
   test('rechaza otro type o versión', () => {
     const e = crear();
     expect(() => UsuarioVinculado.parse(e)).toThrow();
-    expect(() => TenantCreado.parse({ ...e, version: 2 })).toThrow();
+    expect(() => TenantCreadoV1.parse({ ...e, version: 2 })).toThrow();
   });
 
   test('rechaza data inválida', () => {
     const e = crear();
-    expect(() => TenantCreado.parse({ ...e, data: { ...e.data, slug: 1 } })).toThrow();
+    expect(() => TenantCreadoV1.parse({ ...e, data: { ...e.data, slug: 1 } })).toThrow();
   });
 
   test('rechaza un sobre malformado', () => {
     const e = crear();
-    expect(() => TenantCreado.parse({ ...e, tenant_id: 'no-es-uuid' })).toThrow();
-    expect(() => TenantCreado.parse({ ...e, event_id: 'x' })).toThrow();
-    expect(() => TenantCreado.parse({ ...e, occurred_at: 'ayer' })).toThrow();
-    expect(() => TenantCreado.parse({ ...e, trace_id: undefined })).toThrow();
-    expect(() => TenantCreado.parse(null)).toThrow();
-    expect(() => TenantCreado.parse('texto')).toThrow();
+    expect(() => TenantCreadoV1.parse({ ...e, tenant_id: 'no-es-uuid' })).toThrow();
+    expect(() => TenantCreadoV1.parse({ ...e, event_id: 'x' })).toThrow();
+    expect(() => TenantCreadoV1.parse({ ...e, occurred_at: 'ayer' })).toThrow();
+    expect(() => TenantCreadoV1.parse({ ...e, trace_id: undefined })).toThrow();
+    expect(() => TenantCreadoV1.parse(null)).toThrow();
+    expect(() => TenantCreadoV1.parse('texto')).toThrow();
   });
 
   test('devuelve el sobre completo con data tipada', () => {
     const e = crear();
-    expect(TenantCreado.parse(JSON.parse(JSON.stringify(e)))).toEqual(e);
+    expect(TenantCreadoV1.parse(JSON.parse(JSON.stringify(e)))).toEqual(e);
   });
 });
 
@@ -100,7 +101,14 @@ describe('eventEnvelopeSchema', () => {
 
 describe('definiciones de eventos de identidad', () => {
   const casos = [
-    { def: TenantCreado, type: 'tenant.creado', version: 1, valida: tenantData, invalida: { ...tenantData, adminUsuarioId: 'x' } },
+    { def: TenantCreadoV1, type: 'tenant.creado', version: 1, valida: tenantData, invalida: { ...tenantData, adminUsuarioId: 'x' } },
+    {
+      def: TenantCreado,
+      type: 'tenant.creado',
+      version: 2,
+      valida: { ...tenantData, pais: 'MX', moneda: 'MXN' },
+      invalida: { ...tenantData, pais: 'MX' },
+    },
     {
       def: UsuarioVinculado,
       type: 'usuario.vinculado',

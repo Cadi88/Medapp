@@ -1,4 +1,11 @@
-import { TenantCreado, UsuarioVinculado, type EventEnvelope } from '@consultorio/contracts';
+import {
+  PAISES_HABILITADOS,
+  TenantCreado,
+  UsuarioVinculado,
+  codigoPaisSchema,
+  reglasDe,
+  type EventEnvelope,
+} from '@consultorio/contracts';
 import { AppError, enqueueEvent, uuidv7, withTenant } from '@consultorio/platform';
 import type { FastifyPluginAsync } from 'fastify';
 import type pg from 'pg';
@@ -13,6 +20,8 @@ export const registroSchema = z.strictObject({
   nombreConsultorio: z.string().min(2).max(120),
   slug: z.string().regex(/^[a-z0-9-]{3,40}$/),
   zonaHoraria: z.string().refine((z) => ZONAS.has(z), 'zona horaria IANA inválida'),
+  /** País del consultorio; decide la moneda. Solo los países habilitados se aceptan. */
+  pais: codigoPaisSchema.refine((p) => PAISES_HABILITADOS.includes(p), 'país no habilitado').default('MX'),
   /** El fundador siempre es admin; esto decide su rol de trabajo (médico o recepción). */
   esMedico: z.boolean(),
   admin: z.strictObject({
@@ -56,6 +65,8 @@ export function construirEventos(i: { tenantId: string; usuarioId: string; input
         slug: i.input.slug,
         zonaHoraria: i.input.zonaHoraria,
         adminUsuarioId: i.usuarioId,
+        pais: i.input.pais,
+        moneda: reglasDe(i.input.pais).moneda,
       },
     }),
     UsuarioVinculado.create({
@@ -116,11 +127,13 @@ export function createRegistroDeps(pool: pg.Pool, auth: Pick<Auth, 'api'>, log: 
     },
     crearTenant: (plan) =>
       withTenant(pool, plan.tenantId, async (tx) => {
-        await tx.query('INSERT INTO tenant (id, nombre, slug, zona_horaria) VALUES ($1, $2, $3, $4)', [
+        await tx.query('INSERT INTO tenant (id, nombre, slug, zona_horaria, pais, moneda) VALUES ($1, $2, $3, $4, $5, $6)', [
           plan.tenantId,
           plan.input.nombreConsultorio,
           plan.input.slug,
           plan.input.zonaHoraria,
+          plan.input.pais,
+          reglasDe(plan.input.pais).moneda,
         ]);
         await tx.query('INSERT INTO membresia (tenant_id, usuario_id, rol, admin) VALUES ($1, $2, $3, true)', [
           plan.tenantId,

@@ -74,3 +74,24 @@ describe('migración 004 (contraseña temporal)', () => {
     expect(m004).toMatch(/GRANT EXECUTE ON FUNCTION fn_membresias_otros_consultorios\(uuid, uuid\) TO "identidad_app"/);
   });
 });
+
+describe('migración 005 (personalización)', () => {
+  const m005 = leer('005_personalizacion.sql');
+
+  test('columnas con sus CHECK y valores por omisión', () => {
+    expect(m005).toMatch(/color_primario text CHECK \(color_primario ~ '\^#\[0-9a-f\]\{6\}\$'\)/);
+    expect(m005).toMatch(/logo_version integer NOT NULL DEFAULT 0/);
+    expect(m005).toMatch(/pais text NOT NULL DEFAULT 'MX' CHECK \(pais IN \('MX', 'BO'\)\)/);
+    expect(m005).toMatch(/moneda text NOT NULL DEFAULT 'MXN' CHECK \(moneda IN \('MXN', 'BOB'\)\)/);
+    expect(m005).not.toMatch(/row level security/i);
+  });
+
+  test('UPDATE solo por columna para identidad_app, tras retirar el de tabla completa', () => {
+    const revoke = m005.indexOf('REVOKE UPDATE ON tenant FROM "identidad_app"');
+    const grant = m005.indexOf(
+      'GRANT UPDATE (nombre_comercial, direccion, telefono, color_primario, logo_key, logo_version) ON tenant TO "identidad_app"',
+    );
+    expect(revoke).toBeGreaterThan(-1);
+    expect(grant).toBeGreaterThan(revoke);
+  });
+});

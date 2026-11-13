@@ -39,7 +39,7 @@ describe('construirEventos', () => {
       tenant_id: tenantId,
       actor_id: USUARIO,
       trace_id: TRACE,
-      data: { tenantId, nombre: 'Consultorio Uno', slug: 'uno', zonaHoraria: 'America/Mexico_City', adminUsuarioId: USUARIO },
+      data: { tenantId, nombre: 'Consultorio Uno', slug: 'uno', zonaHoraria: 'America/Mexico_City', adminUsuarioId: USUARIO, pais: 'MX', moneda: 'MXN' },
     });
     expect(UsuarioVinculado.parse(b)).toMatchObject({ tenant_id: tenantId, version: 2, data: { usuarioId: USUARIO, nombre: 'Ana', rol: 'medico', admin: true } });
   });

@@ -43,6 +43,13 @@ describe('registroSchema', () => {
     expect(registroSchema.safeParse(con({ slug: 'a'.repeat(40) })).success).toBe(true);
   });
 
+  test('país: por omisión MX; MX explícito sí; BO (no habilitado) y desconocido no', () => {
+    expect(registroSchema.parse(base).pais).toBe('MX');
+    expect(registroSchema.parse(con({ pais: 'MX' })).pais).toBe('MX');
+    expect(registroSchema.safeParse(con({ pais: 'BO' })).success).toBe(false);
+    expect(registroSchema.safeParse(con({ pais: 'AR' })).success).toBe(false);
+  });
+
   test('rechaza campos desconocidos', () => {
     expect(registroSchema.safeParse(con({ rol: 'admin' })).success).toBe(false);
   });

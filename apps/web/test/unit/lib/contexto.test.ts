@@ -19,7 +19,20 @@ const { obtenerContexto } = await import('@/lib/sesion/contexto');
 const c = crearAlmacenCookies();
 falsas.ref = c.almacen;
 const fetchFalso = vi.fn<typeof fetch>();
-const consultorio = { id: CLAIMS.tid, nombre: 'Consultorio Centro', slug: 'centro', zonaHoraria: 'America/Mexico_City' };
+const consultorio = {
+  id: CLAIMS.tid,
+  nombre: 'Consultorio Centro',
+  slug: 'centro',
+  zonaHoraria: 'America/Mexico_City',
+  nombreComercial: null,
+  direccion: null,
+  telefono: null,
+  colorPrimario: null,
+  colorTexto: null,
+  logoVersion: 0,
+  pais: 'MX',
+  moneda: 'MXN',
+};
 
 beforeEach(() => {
   c.limpiar();

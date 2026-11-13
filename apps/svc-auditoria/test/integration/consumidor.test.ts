@@ -45,7 +45,7 @@ describe('consumidor de auditoría', () => {
       tenantId: T,
       actorId: null,
       traceId: 'trace-1',
-      data: { tenantId: T, nombre: 'Clínica', slug: 'clinica', zonaHoraria: 'America/Mexico_City', adminUsuarioId: uuidv7() },
+      data: { tenantId: T, nombre: 'Clínica', slug: 'clinica', zonaHoraria: 'America/Mexico_City', adminUsuarioId: uuidv7(), pais: 'MX', moneda: 'MXN' },
     });
     await publicar(e);
     await publicar(e); // duplicado: mismo event_id, sin Nats-Msg-Id → ambos entran al stream

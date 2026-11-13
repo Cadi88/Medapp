@@ -2,6 +2,7 @@ import type { NatsConnection } from '@nats-io/transport-node';
 import {
   MiembroActualizado,
   TenantCreado,
+  TenantCreadoV1,
   UsuarioDesvinculado,
   UsuarioVinculado,
   UsuarioVinculadoV1,
@@ -22,6 +23,12 @@ async function aplicarMedico(tx: pg.PoolClient, tenantId: string, usuarioId: str
 export async function manejarEvento(e: EventEnvelope, tx: pg.PoolClient): Promise<void> {
   switch (`${e.type}@${e.version}`) {
     case 'tenant.creado@1': {
+      // La zona horaria es lo único que usa agenda: v1 y v2 solo difieren en país y moneda.
+      const { data } = TenantCreadoV1.parse(e);
+      await guardarConsultorio(tx, e.tenant_id, data.zonaHoraria);
+      return;
+    }
+    case 'tenant.creado@2': {
       const { data } = TenantCreado.parse(e);
       await guardarConsultorio(tx, e.tenant_id, data.zonaHoraria);
       return;

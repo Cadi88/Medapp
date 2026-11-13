@@ -37,8 +37,25 @@ describe('GET /consultorio', () => {
         nombre: 'Consultorio lectura-uno',
         slug: 'lectura-uno',
         zonaHoraria: 'America/Mexico_City',
+        nombreComercial: null,
+        direccion: null,
+        telefono: null,
+        colorPrimario: null,
+        colorTexto: null,
+        logoVersion: 0,
+        pais: 'MX',
+        moneda: 'MXN',
       });
     }
+  });
+  test('con color y logo guardados: colorTexto calculado y logoVersion; sin logo_key la versión es 0', async () => {
+    await env.migrator.query("UPDATE tenant SET color_primario = '#fde68a', logo_version = 4 WHERE id = $1", [c.tenantId]);
+    let r = consultorioSchema.parse((await get('/consultorio', c.adminToken)).json());
+    expect(r).toMatchObject({ colorPrimario: '#fde68a', colorTexto: '#000000', logoVersion: 0 });
+    await env.migrator.query("UPDATE tenant SET color_primario = '#1e3a8a', logo_key = 'logos/x/y.png' WHERE id = $1", [c.tenantId]);
+    r = consultorioSchema.parse((await get('/consultorio', c.adminToken)).json());
+    expect(r).toMatchObject({ colorPrimario: '#1e3a8a', colorTexto: '#ffffff', logoVersion: 4 });
+    await env.migrator.query('UPDATE tenant SET color_primario = NULL, logo_key = NULL, logo_version = 0 WHERE id = $1', [c.tenantId]);
   });
   test('sin token → 401', async () => {
     expect((await get('/consultorio')).statusCode).toBe(401);

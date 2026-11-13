@@ -1,11 +1,20 @@
 import { z } from 'zod';
 import { rolSchema } from '../auth.js';
+import { codigoPaisSchema, monedaSchema } from '../paises/tipos.js';
 
 export const consultorioSchema = z.object({
   id: z.string().uuid(),
   nombre: z.string(),
   slug: z.string(),
   zonaHoraria: z.string(),
+  nombreComercial: z.string().nullable(),
+  direccion: z.string().nullable(),
+  telefono: z.string().nullable(),
+  colorPrimario: z.string().nullable(),
+  colorTexto: z.enum(['#ffffff', '#000000']).nullable(),
+  logoVersion: z.number().int().min(0),
+  pais: codigoPaisSchema,
+  moneda: monedaSchema,
 });
 export type Consultorio = z.infer<typeof consultorioSchema>;
 

@@ -5,3 +5,5 @@ export * from './events/identidad.js';
 export * from './events/agenda.js';
 export * from './api/identidad.js';
 export * from './api/agenda.js';
+export * from './paises/index.js';
+export * from './marca/color.js';

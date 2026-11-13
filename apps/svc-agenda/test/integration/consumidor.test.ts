@@ -1,5 +1,5 @@
 import { jetstream } from '@nats-io/jetstream';
-import { MiembroActualizado, TenantCreado, UsuarioDesvinculado, UsuarioVinculado, UsuarioVinculadoV1 } from '@consultorio/contracts';
+import { MiembroActualizado, TenantCreado, TenantCreadoV1, UsuarioDesvinculado, UsuarioVinculado, UsuarioVinculadoV1 } from '@consultorio/contracts';
 import { withTenant } from '@consultorio/platform';
 import { uuidv7 } from 'uuidv7';
 import { afterAll, beforeAll, describe, expect, test } from 'vitest';
@@ -38,7 +38,7 @@ describe('consumidor de agenda', () => {
     const T = uuidv7();
     const u = uuidv7();
     const r = uuidv7();
-    const creado = TenantCreado.create({ ...base(T), data: { tenantId: T, nombre: 'C', slug: 'c-1', zonaHoraria: 'America/Mexico_City', adminUsuarioId: u } });
+    const creado = TenantCreado.create({ ...base(T), data: { tenantId: T, nombre: 'C', slug: 'c-1', zonaHoraria: 'America/Mexico_City', adminUsuarioId: u, pais: 'MX', moneda: 'MXN' } });
     const vinculado = UsuarioVinculado.create({ ...base(T), data: { usuarioId: u, nombre: 'Dra. A', rol: 'medico', admin: true } });
     await publicar(creado);
     await publicar(creado);
@@ -58,6 +58,16 @@ describe('consumidor de agenda', () => {
       { usuario_id: b, nombre: 'Zeta', activo: true },
     ]);
     expect(await consultorios(T)).toHaveLength(1);
+  });
+
+  test('consumidor acepta tenant.creado v1 y v2', async () => {
+    const [T1, T2] = [uuidv7(), uuidv7()];
+    const u = uuidv7();
+    const datos = (t: string, zona: string) => ({ tenantId: t, nombre: 'C', slug: 'c-' + t.slice(-6), zonaHoraria: zona, adminUsuarioId: u });
+    await publicar(TenantCreadoV1.create({ ...base(T1), data: datos(T1, 'America/Cancun') }));
+    await publicar(TenantCreado.create({ ...base(T2), data: { ...datos(T2, 'America/Tijuana'), pais: 'MX', moneda: 'MXN' } }));
+    expect(await esperar(() => consultorios(T1), (f) => f.length === 1)).toEqual([{ tenant_id: T1, zona_horaria: 'America/Cancun' }]);
+    expect(await esperar(() => consultorios(T2), (f) => f.length === 1)).toEqual([{ tenant_id: T2, zona_horaria: 'America/Tijuana' }]);
   });
 
   test('miembro.actualizado cambia el nombre y, al pasar a recepción, desactiva', async () => {

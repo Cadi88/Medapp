@@ -15,9 +15,24 @@ const base = {
 
 describe('consultorioSchema', () => {
   test('acepta un consultorio y rechaza id no UUID', () => {
-    const c = { id: U, nombre: 'C', slug: 'c-uno', zonaHoraria: 'America/Mexico_City' };
+    const c = {
+      id: U,
+      nombre: 'C',
+      slug: 'c-uno',
+      zonaHoraria: 'America/Mexico_City',
+      nombreComercial: null,
+      direccion: null,
+      telefono: null,
+      colorPrimario: null,
+      colorTexto: null,
+      logoVersion: 0,
+      pais: 'MX',
+      moneda: 'MXN',
+    };
     expect(consultorioSchema.parse(c)).toEqual(c);
     expect(consultorioSchema.safeParse({ ...c, id: 'x' }).success).toBe(false);
+    expect(consultorioSchema.safeParse({ ...c, pais: 'AR' }).success).toBe(false);
+    expect(consultorioSchema.parse({ ...c, colorPrimario: '#1e3a8a', colorTexto: '#ffffff', logoVersion: 3 }).logoVersion).toBe(3);
   });
 });
 

@@ -55,6 +55,24 @@ describe('POST /registro', () => {
     expect(u.twoFactorEnabled).toBeFalsy();
   });
 
+  test('registro sin país → MX/MXN y tenant.creado v2', async () => {
+    const r = await post(registro('pais-omision'));
+    expect(r.statusCode).toBe(201);
+    const [t] = await q('select pais, moneda, logo_version from tenant where id = $1', [r.json().tenantId]);
+    expect(t).toEqual({ pais: 'MX', moneda: 'MXN', logo_version: 0 });
+    const [e] = await q("select payload from outbox where type = 'tenant.creado'");
+    expect(e.payload).toMatchObject({ version: 2, data: { pais: 'MX', moneda: 'MXN' } });
+  });
+
+  test('registro con país MX explícito funciona; BO (no habilitado) y desconocido → 400', async () => {
+    expect((await post(registro('pais-mx', undefined, { pais: 'MX' }))).statusCode).toBe(201);
+    for (const pais of ['BO', 'AR']) {
+      const r = await post(registro('pais-' + pais.toLowerCase(), undefined, { pais }));
+      expect(r.statusCode).toBe(400);
+    }
+    expect(await q("select 1 from tenant where slug in ('pais-bo', 'pais-ar')")).toEqual([]);
+  });
+
   test('registro con esMedico=true crea membresía medico+admin y emite usuario.vinculado v2', async () => {
     const r = await post(registro('medico-uno', undefined, { esMedico: true }));
     const m = await q('select rol, admin from membresia where tenant_id = $1', [r.json().tenantId]);
