@@ -34,6 +34,7 @@ export function resolverPersonalizacion(entrada: Personalizacion, pais: CodigoPa
   }
   if (entrada.colorPrimario && nuevos.colorPrimario !== null) {
     nuevos.colorPrimario = nuevos.colorPrimario.toLowerCase();
+    if (!/^#[0-9a-f]{6}$/.test(nuevos.colorPrimario)) return { ok: false, campo: 'colorPrimario', mensaje: 'Color inválido (usa el formato #rrggbb)' };
     if (!colorValidoSobreBlanco(nuevos.colorPrimario)) return { ok: false, campo: 'colorPrimario', mensaje: 'Elige un color más oscuro' };
   }
   return { ok: true, nuevos, cambiados: CAMPOS.filter((c) => nuevos[c] !== actual[c]) };

@@ -23,9 +23,12 @@ describe('resolverPersonalizacion', () => {
     expect(resolverPersonalizacion({ telefono: '71234567' }, 'MX', vacio)).toMatchObject({ ok: false, campo: 'telefono' });
     expect(resolverPersonalizacion({ telefono: '71234567' }, 'BO', vacio)).toMatchObject({ ok: true, nuevos: { telefono: '+59171234567' } });
   });
-  test('color con poco contraste sobre blanco o mal formado → "Elige un color más oscuro"', () => {
-    for (const color of ['#fde68a', 'rojo', '#fff']) {
-      expect(resolverPersonalizacion({ colorPrimario: color }, 'MX', vacio)).toEqual({ ok: false, campo: 'colorPrimario', mensaje: 'Elige un color más oscuro' });
+  test('color con poco contraste sobre blanco → "Elige un color más oscuro"', () => {
+    expect(resolverPersonalizacion({ colorPrimario: '#fde68a' }, 'MX', vacio)).toEqual({ ok: false, campo: 'colorPrimario', mensaje: 'Elige un color más oscuro' });
+  });
+  test('color mal formado → "Color inválido (usa el formato #rrggbb)"', () => {
+    for (const color of ['rojo', '#fff', '#12345g', '1e3a8a']) {
+      expect(resolverPersonalizacion({ colorPrimario: color }, 'MX', vacio)).toEqual({ ok: false, campo: 'colorPrimario', mensaje: 'Color inválido (usa el formato #rrggbb)' });
     }
   });
   test('el color se guarda en minúsculas', () => {

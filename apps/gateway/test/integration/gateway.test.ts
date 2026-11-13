@@ -381,7 +381,8 @@ describe('límite del cuerpo', () => {
 
   test('rechaza más de 2 MB en el logo', async () => {
     const r = await gw.inject({ method: 'PUT', url: '/api/identidad/consultorio/logo', headers: { ...auth(await jwks.sign(claims)), 'content-type': 'image/png' }, payload: imagen(2_200_000) });
-    expect(r.statusCode).toBe(413);
+    expect(r.statusCode).toBe(400);
+    expect(r.json()).toEqual({ code: 'VALIDACION', message: 'El logo debe pesar menos de 1 MB', details: { campo: 'logo' } });
   });
 
   test('rechaza más de 1 MB en cualquier otra ruta (también PUT de otra ruta y el logo por GET/POST)', async () => {
@@ -393,6 +394,7 @@ describe('límite del cuerpo', () => {
     ] as const) {
       const r = await gw.inject({ method, url, headers, payload: imagen(1_500_000) });
       expect(r.statusCode, `${method} ${url}`).toBe(413);
+      expect(r.json(), `${method} ${url}`).toMatchObject({ code: 'VALIDACION', message: 'Solicitud inválida' });
     }
   });
 });

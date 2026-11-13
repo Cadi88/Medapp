@@ -1,6 +1,6 @@
 import { ConsultorioActualizado } from '@consultorio/contracts';
-import { AppError, enqueueEvent, requireAdmin, uuidv7, withTenant, type Almacen } from '@consultorio/platform';
-import type { FastifyBaseLogger, FastifyPluginAsync } from 'fastify';
+import { AppError, enqueueEvent, mapError, requireAdmin, uuidv7, withTenant, type Almacen } from '@consultorio/platform';
+import type { FastifyBaseLogger, FastifyPluginAsync, RouteShorthandOptions } from 'fastify';
 import type pg from 'pg';
 import { exigirActor } from '../actor.js';
 import { detectarFormato } from '../dominio/logo.js';
@@ -13,6 +13,7 @@ export interface LogoRoutesOptions {
 
 const MAX_ARCHIVO = 1024 * 1024;
 const MAX_CUERPO = 2 * 1024 * 1024;
+const MENSAJE_GRANDE = 'El logo debe pesar menos de 1 MB';
 const servicioNoDisponible = (): AppError => new AppError('INTERNO', 'Servicio no disponible', 503);
 
 /** Borra una llave ya huérfana: el fallo solo se registra (la fila de la base ya no la referencia). */
@@ -25,12 +26,23 @@ async function borrarSinFallar(almacen: Almacen, log: FastifyBaseLogger, llave: 
 }
 
 export const logoRoutes: FastifyPluginAsync<LogoRoutesOptions> = async (app, { pool, almacen }) => {
-  // El archivo llega crudo (no multipart); el parser solo existe en este plugin.
-  for (const tipo of ['image/png', 'image/jpeg', 'image/webp']) {
+  // El archivo llega crudo (no multipart); el parser solo existe en este plugin. Acepta cualquier image/* y
+  // application/octet-stream: el formato real lo decide `detectarFormato` por los bytes (400 con el texto de la spec).
+  for (const tipo of [/^image\/.+/, 'application/octet-stream']) {
     app.addContentTypeParser(tipo, { parseAs: 'buffer' }, (_req, body, done) => {
       done(null, body);
     });
   }
+
+  /** Un cuerpo de más de 2 MB (límite HTTP) se responde con el mismo texto que un archivo de más de 1 MB. */
+  const errorSubida: RouteShorthandOptions['errorHandler'] = (err, req, reply) => {
+    if ((err as { code?: string }).code === 'FST_ERR_CTP_BODY_TOO_LARGE') {
+      return reply.code(400).send({ code: 'VALIDACION', message: MENSAJE_GRANDE, details: { campo: 'logo' } });
+    }
+    const m = mapError(err);
+    if (m.unexpected) req.log.error({ err }, 'error no controlado');
+    return reply.code(m.status).send(m.body);
+  };
 
   /**
    * Cambia `logo_key` (nueva llave o NULL) bajo `FOR UPDATE` y emite el evento en la misma transacción.
@@ -49,9 +61,9 @@ export const logoRoutes: FastifyPluginAsync<LogoRoutesOptions> = async (app, { p
     });
   }
 
-  app.put('/consultorio/logo', { preHandler: requireAdmin(), bodyLimit: MAX_CUERPO }, async (req) => {
+  app.put('/consultorio/logo', { preHandler: requireAdmin(), bodyLimit: MAX_CUERPO, errorHandler: errorSubida }, async (req) => {
     const bytes = Buffer.isBuffer(req.body) ? req.body : Buffer.alloc(0);
-    if (bytes.length > MAX_ARCHIVO) throw new AppError('VALIDACION', 'El logo debe pesar menos de 1 MB', 400);
+    if (bytes.length > MAX_ARCHIVO) throw new AppError('VALIDACION', MENSAJE_GRANDE, 400, { campo: 'logo' });
     if (detectarFormato(bytes) === null) throw new AppError('VALIDACION', 'Sube una imagen PNG, JPG o WebP', 400);
     const png = await procesarLogo(bytes);
 

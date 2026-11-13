@@ -1,4 +1,4 @@
-import { AppError, createHttpApp } from '@consultorio/platform';
+import { AppError, createHttpApp, mapError } from '@consultorio/platform';
 import rateLimit from '@fastify/rate-limit';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { Agent, request as undiciRequest } from 'undici';
@@ -114,7 +114,21 @@ export async function buildGateway(o: GatewayOptions): Promise<FastifyInstance> 
     app.route({ method: r.metodos, url: r.url, config: { rateLimit: {} }, handler: proxear });
   }
   // El logo se sube crudo y puede pesar hasta 2 MB (identidad valida el tamaño del archivo); el resto conserva el límite por omisión.
-  app.route({ method: 'PUT', url: '/api/identidad/consultorio/logo', bodyLimit: LIMITE_LOGO, handler: proxear });
+  app.route({
+    method: 'PUT',
+    url: '/api/identidad/consultorio/logo',
+    bodyLimit: LIMITE_LOGO,
+    // Más de 2 MB nunca llega a identidad: se responde aquí con el mismo texto que un archivo de más de 1 MB.
+    errorHandler: (err, req, reply) => {
+      if ((err as { code?: string }).code === 'FST_ERR_CTP_BODY_TOO_LARGE') {
+        return reply.code(400).send({ code: 'VALIDACION', message: 'El logo debe pesar menos de 1 MB', details: { campo: 'logo' } });
+      }
+      const m = mapError(err);
+      if (m.unexpected) req.log.error({ err }, 'error no controlado');
+      return reply.code(m.status).send(m.body);
+    },
+    handler: proxear,
+  });
   for (const s of ['identidad', 'auditoria', 'agenda']) {
     app.route({ method: METODOS, url: `/api/${s}/*`, handler: proxear });
   }

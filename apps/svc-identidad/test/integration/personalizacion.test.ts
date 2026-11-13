@@ -69,6 +69,9 @@ describe('PATCH /consultorio/personalizacion', () => {
     const col = await patch({ colorPrimario: '#fde68a' });
     expect(col.statusCode).toBe(400);
     expect(col.json()).toMatchObject({ message: 'Elige un color más oscuro', details: [{ campo: 'colorPrimario' }] });
+    const mal = await patch({ colorPrimario: 'rojo' });
+    expect(mal.statusCode).toBe(400);
+    expect(mal.json()).toMatchObject({ message: 'Color inválido (usa el formato #rrggbb)', details: [{ campo: 'colorPrimario' }] });
   });
 
   test('cuerpo vacío, campos extra o nombre demasiado corto → 400', async () => {

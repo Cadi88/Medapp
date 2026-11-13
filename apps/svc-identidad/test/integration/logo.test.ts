@@ -113,11 +113,21 @@ describe('logo del consultorio', () => {
     expect(guardadas).toHaveLength(inicio);
   });
 
-  test('tipo de contenido no admitido (GIF → 415, JSON → 400) sin guardar', async () => {
+  test('GIF, SVG, BMP o JSON subidos como imagen → 400 con el texto de la spec y nada guardado', async () => {
     const inicio = guardadas.length;
     const gif = await sharp({ create: { width: 2, height: 2, channels: 3, background: '#000000' } }).gif().toBuffer();
-    expect((await put(gif, a.adminToken, 'image/gif')).statusCode).toBe(415);
-    expect((await put(Buffer.from('{}'), a.adminToken, 'application/json')).statusCode).toBe(400);
+    const casos: [Buffer, string][] = [
+      [gif, 'image/gif'],
+      [Buffer.from('<svg xmlns="http://www.w3.org/2000/svg"/>'), 'image/svg+xml'],
+      [Buffer.from('BMbmp'), 'image/bmp'],
+      [gif, 'application/octet-stream'],
+      [Buffer.from('{}'), 'application/json'],
+    ];
+    for (const [cuerpo, tipo] of casos) {
+      const r = await put(cuerpo, a.adminToken, tipo);
+      expect(r.statusCode, tipo).toBe(400);
+      expect(r.json(), tipo).toMatchObject({ code: 'VALIDACION', message: 'Sube una imagen PNG, JPG o WebP' });
+    }
     expect(guardadas).toHaveLength(inicio);
   });
 
@@ -131,11 +141,13 @@ describe('logo del consultorio', () => {
   test('archivo de 1.5 MB → 400 "El logo debe pesar menos de 1 MB"', async () => {
     const r = await put(Buffer.concat([await png(), Buffer.alloc(1_500_000)]));
     expect(r.statusCode).toBe(400);
-    expect(r.json()).toMatchObject({ message: 'El logo debe pesar menos de 1 MB' });
+    expect(r.json()).toMatchObject({ code: 'VALIDACION', message: 'El logo debe pesar menos de 1 MB' });
   });
 
-  test('cuerpo de más de 2 MB → 413 (límite del cuerpo HTTP)', async () => {
-    expect((await put(Buffer.concat([await png(), Buffer.alloc(2_200_000)]))).statusCode).toBe(413);
+  test('cuerpo de más de 2 MB → 400 con el mismo texto de "menos de 1 MB"', async () => {
+    const r = await put(Buffer.concat([await png(), Buffer.alloc(2_200_000)]));
+    expect(r.statusCode).toBe(400);
+    expect(r.json()).toEqual({ code: 'VALIDACION', message: 'El logo debe pesar menos de 1 MB', details: { campo: 'logo' } });
   });
 
   test('Review Focus 4: el token de B nunca obtiene el logo de A', async () => {
