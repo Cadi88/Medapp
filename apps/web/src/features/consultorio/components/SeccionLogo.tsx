@@ -19,6 +19,9 @@ export function SeccionLogo({ nombre, consultorioId, logoVersion }: Props) {
   const formulario = useRef<HTMLFormElement>(null);
   const entrada = useRef<HTMLInputElement>(null);
   const [errorLocal, setErrorLocal] = useState<string>();
+  /** Versión del logo que no cargó: una versión nueva vuelve a intentar y quita el aviso. */
+  const [versionSinCargar, setVersionSinCargar] = useState<number>();
+  const sinCargar = logoVersion > 0 && versionSinCargar === logoVersion;
   const [subida, accionSubir, subiendo] = useActionState<EstadoFormulario, FormData>(subirLogo, {});
   const [quitada, accionQuitar, quitando] = useActionState<EstadoFormulario, FormData>(quitarLogo, {});
 
@@ -37,8 +40,16 @@ export function SeccionLogo({ nombre, consultorioId, logoVersion }: Props) {
     <section className="grid max-w-xl gap-3">
       <h2 className="text-lg font-medium">Logo</h2>
       <div className="flex min-h-16 items-center rounded-md border p-3">
-        {logoVersion > 0 ? (
-          <LogoConsultorio nombre={nombre} consultorioId={consultorioId} logoVersion={logoVersion} className="max-h-24 w-auto max-w-60 object-contain" />
+        {sinCargar ? (
+          <p className="text-sm text-muted-foreground">No se pudo cargar el logo en este momento. Intenta más tarde.</p>
+        ) : logoVersion > 0 ? (
+          <LogoConsultorio
+            nombre={nombre}
+            consultorioId={consultorioId}
+            logoVersion={logoVersion}
+            className="max-h-24 w-auto max-w-60 object-contain"
+            onFallo={() => setVersionSinCargar(logoVersion)}
+          />
         ) : (
           <p className="text-sm text-muted-foreground">Sin logo</p>
         )}

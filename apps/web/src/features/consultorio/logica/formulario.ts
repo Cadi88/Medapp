@@ -1,4 +1,4 @@
-import { colorValidoSobreBlanco, type Consultorio } from '@consultorio/contracts';
+import { type CodigoPais, colorValidoSobreBlanco, type Consultorio, normalizarTelefono, reglasDe } from '@consultorio/contracts';
 
 export const MAX_LOGO_BYTES = 1_048_576;
 export const TIPOS_LOGO: readonly string[] = ['image/png', 'image/jpeg', 'image/webp'];
@@ -7,6 +7,33 @@ export const MENSAJE_LOGO_PESADO = 'El logo debe pesar menos de 1 MB';
 export const MENSAJE_LOGO_TIPO = 'Sube una imagen PNG, JPG o WebP';
 export const MENSAJE_COLOR_CLARO = 'Elige un color más oscuro';
 export const MENSAJE_COLOR_INVALIDO = 'Color inválido (usa el formato #rrggbb)';
+
+export const MAX_NOMBRE_COMERCIAL = 120;
+export const MAX_DIRECCION = 300;
+export const MENSAJE_NOMBRE_COMERCIAL = 'El nombre comercial debe tener entre 2 y 120 caracteres';
+export const MENSAJE_DIRECCION = 'La dirección no puede pasar de 300 caracteres';
+
+/** Vacío vale (borra el nombre comercial); con texto, de 2 a 120 caracteres. Igual que en identidad. */
+export function errorDeNombreComercial(nombre: string): string | undefined {
+  const largo = nombre.trim().length;
+  return largo === 0 || (largo >= 2 && largo <= MAX_NOMBRE_COMERCIAL) ? undefined : MENSAJE_NOMBRE_COMERCIAL;
+}
+
+export function errorDeDireccion(direccion: string): string | undefined {
+  return direccion.trim().length > MAX_DIRECCION ? MENSAJE_DIRECCION : undefined;
+}
+
+/** Dígitos nacionales de un teléfono guardado (E.164): el prefijo del país se muestra aparte, junto al campo. */
+export function telefonoParaMostrar(telefono: string | null | undefined, pais: CodigoPais): string {
+  if (!telefono) return '';
+  const { prefijoTelefonico } = reglasDe(pais);
+  return telefono.startsWith(prefijoTelefonico) ? telefono.slice(prefijoTelefonico.length) : telefono;
+}
+
+/** El teléfono tal como lo guarda el servicio (E.164) si es válido; si no, el texto escrito, para que el servicio lo rechace. */
+export function telefonoParaComparar(texto: string, pais: CodigoPais): string {
+  return texto.trim() === '' ? texto : (normalizarTelefono(texto, pais) ?? texto);
+}
 
 const FORMATO_COLOR = /^#[0-9a-f]{6}$/;
 

@@ -1,12 +1,12 @@
 'use client';
 
-import type { Consultorio } from '@consultorio/contracts';
+import { reglasDe, type Consultorio } from '@consultorio/contracts';
 import { useActionState, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { AvisoDeError, Campo } from '@/features/sesion/components/campo';
 import type { EstadoFormulario } from '@/features/sesion/tipos';
 import { guardarPersonalizacion } from '../actions';
-import { errorDeColor } from '../logica/formulario';
+import { errorDeColor, errorDeNombreComercial, MAX_DIRECCION, MAX_NOMBRE_COMERCIAL, telefonoParaMostrar } from '../logica/formulario';
 import { SelectorColor } from './SelectorColor';
 import { VistaPreviaEncabezado } from './VistaPreviaEncabezado';
 
@@ -17,6 +17,7 @@ export function FormularioPersonalizacion({ consultorio }: { consultorio: Consul
   const [nombre, setNombre] = useState(consultorio.nombreComercial ?? '');
   const [color, setColor] = useState(consultorio.colorPrimario ?? '');
   const mostrado = nombre.trim() || consultorio.nombre;
+  const errorNombre = errorDeNombreComercial(nombre);
 
   return (
     <form action={accion} className="grid max-w-xl gap-4" noValidate>
@@ -27,15 +28,23 @@ export function FormularioPersonalizacion({ consultorio }: { consultorio: Consul
         placeholder={consultorio.nombre}
         value={nombre}
         onChange={(e) => setNombre(e.target.value)}
-        error={estado.errores?.nombreComercial}
+        maxLength={MAX_NOMBRE_COMERCIAL}
+        error={errorNombre ?? estado.errores?.nombreComercial}
       />
-      <Campo nombre="direccion" etiqueta="Dirección" defaultValue={v?.direccion ?? consultorio.direccion ?? ''} error={estado.errores?.direccion} />
+      <Campo
+        nombre="direccion"
+        etiqueta="Dirección"
+        defaultValue={v?.direccion ?? consultorio.direccion ?? ''}
+        maxLength={MAX_DIRECCION}
+        error={estado.errores?.direccion}
+      />
       <Campo
         nombre="telefono"
         etiqueta="Teléfono"
         type="tel"
         autoComplete="off"
-        defaultValue={v?.telefono ?? consultorio.telefono ?? ''}
+        prefijo={reglasDe(consultorio.pais).prefijoTelefonico}
+        defaultValue={telefonoParaMostrar(v?.telefono ?? consultorio.telefono, consultorio.pais)}
         error={estado.errores?.telefono}
       />
       <SelectorColor valor={color} onCambio={setColor} error={estado.errores?.colorPrimario} />
@@ -45,7 +54,7 @@ export function FormularioPersonalizacion({ consultorio }: { consultorio: Consul
           Cambios guardados
         </p>
       ) : null}
-      <Button type="submit" disabled={enviando || errorDeColor(color) !== undefined} className="w-fit">
+      <Button type="submit" disabled={enviando || errorDeColor(color) !== undefined || errorNombre !== undefined} className="w-fit">
         {enviando ? 'Guardando…' : 'Guardar cambios'}
       </Button>
     </form>

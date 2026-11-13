@@ -13,12 +13,13 @@ interface Props {
   opciones: OpcionDeMenu[];
   /** Nombre que se muestra: el nombre comercial o, sin él, el del consultorio. */
   consultorio: string;
-  consultorioId?: string;
+  /** Obligatorio: la URL del logo lo lleva para que la caché del navegador no se comparta entre consultorios. */
+  consultorioId: string;
   /** 0 = sin logo. */
-  logoVersion?: number;
+  logoVersion: number;
 }
 
-export function BarraDeNavegacion({ opciones, consultorio, consultorioId = '', logoVersion = 0 }: Props) {
+export function BarraDeNavegacion({ opciones, consultorio, consultorioId, logoVersion }: Props) {
   const ruta = usePathname();
   return (
     <header className="border-b bg-background">

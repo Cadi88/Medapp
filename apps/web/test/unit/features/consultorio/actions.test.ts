@@ -141,3 +141,23 @@ describe('quitarLogo', () => {
     expect((await acciones.quitarLogo()).mensaje).toBe('Ocurrió un error. Intenta de nuevo.');
   });
 });
+
+describe('guardarPersonalizacion: longitudes y teléfono nacional', () => {
+  const campos = { nombreComercial: 'Dental Sol', direccion: '', telefono: '+525512345678', colorPrimario: '#1d4ed8' };
+
+  test('nombre comercial de 1 carácter o dirección de más de 300 se rechazan antes de llamar a la API', async () => {
+    const r = await acciones.guardarPersonalizacion({}, formulario({ ...campos, nombreComercial: 'A', direccion: 'x'.repeat(301) }));
+    expect(r.errores).toEqual({
+      nombreComercial: 'El nombre comercial debe tener entre 2 y 120 caracteres',
+      direccion: 'La dirección no puede pasar de 300 caracteres',
+    });
+    expect(m.llamarGateway).not.toHaveBeenCalled();
+  });
+
+  test('el teléfono escrito solo con dígitos nacionales no cuenta como cambio si es el mismo número', async () => {
+    m.llamarGateway.mockImplementation(async () => exito(consultorio));
+    const r = await acciones.guardarPersonalizacion({}, formulario({ ...campos, telefono: '55 1234 5678' }));
+    expect(r).toEqual({ ok: true });
+    expect(llamadas(`${RUTA}/personalizacion`)).toHaveLength(0);
+  });
+});

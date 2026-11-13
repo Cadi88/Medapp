@@ -185,3 +185,57 @@ describe('BarraDeNavegacion con el consultorio personalizado', () => {
     expect(screen.getByText('Sonrisas')).toBeInTheDocument();
   });
 });
+
+describe('SeccionLogo con el almacenamiento caído (spec §5)', () => {
+  test('si el logo no carga, avisa con un texto genérico y deja "Quitar"', () => {
+    render(<SeccionLogo nombre="Dental Sol" consultorioId={consultorio.id} logoVersion={2} />);
+    expect(screen.queryByText('No se pudo cargar el logo en este momento. Intenta más tarde.')).not.toBeInTheDocument();
+    fireEvent.error(screen.getByRole('img', { name: 'Logo de Dental Sol' }));
+    expect(screen.getByText('No se pudo cargar el logo en este momento. Intenta más tarde.')).toBeInTheDocument();
+    expect(screen.queryByRole('img')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Quitar' })).toBeInTheDocument();
+  });
+
+  test('un logo nuevo (otra versión) quita el aviso y vuelve a intentar', () => {
+    const { rerender } = render(<SeccionLogo nombre="Dental Sol" consultorioId={consultorio.id} logoVersion={2} />);
+    fireEvent.error(screen.getByRole('img'));
+    rerender(<SeccionLogo nombre="Dental Sol" consultorioId={consultorio.id} logoVersion={3} />);
+    expect(screen.queryByText(/No se pudo cargar el logo/)).not.toBeInTheDocument();
+    expect(screen.getByRole('img')).toHaveAttribute('src', `/consultorio/logo?c=${consultorio.id}&v=3`);
+  });
+
+  test('el encabezado sigue ocultando el logo en silencio', () => {
+    render(<BarraDeNavegacion opciones={[]} consultorio="Sonrisas" consultorioId={consultorio.id} logoVersion={4} />);
+    fireEvent.error(screen.getByRole('img'));
+    expect(screen.queryByText(/No se pudo cargar el logo/)).not.toBeInTheDocument();
+  });
+});
+
+describe('FormularioPersonalizacion: teléfono con prefijo del país y longitudes', () => {
+  test('muestra el prefijo del país y, de un teléfono guardado, solo los dígitos nacionales', () => {
+    render(<FormularioPersonalizacion consultorio={{ ...consultorio, telefono: '+525512345678' }} />);
+    expect(screen.getByText('+52')).toBeInTheDocument();
+    expect(screen.getByLabelText('Teléfono')).toHaveValue('5512345678');
+  });
+
+  test('con Bolivia el prefijo es +591', () => {
+    render(<FormularioPersonalizacion consultorio={{ ...consultorio, pais: 'BO', moneda: 'BOB', telefono: '+59171234567' }} />);
+    expect(screen.getByText('+591')).toBeInTheDocument();
+    expect(screen.getByLabelText('Teléfono')).toHaveValue('71234567');
+  });
+
+  test('los campos de texto tienen su longitud máxima', () => {
+    render(<FormularioPersonalizacion consultorio={consultorio} />);
+    expect(screen.getByLabelText('Nombre comercial')).toHaveAttribute('maxlength', '120');
+    expect(screen.getByLabelText('Dirección')).toHaveAttribute('maxlength', '300');
+  });
+
+  test('un nombre comercial de 1 carácter muestra el error y deshabilita guardar', async () => {
+    render(<FormularioPersonalizacion consultorio={consultorio} />);
+    await userEvent.type(screen.getByLabelText('Nombre comercial'), 'A');
+    expect(screen.getByText('El nombre comercial debe tener entre 2 y 120 caracteres')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Guardar cambios' })).toBeDisabled();
+    await userEvent.type(screen.getByLabelText('Nombre comercial'), 'B');
+    expect(screen.queryByText(/entre 2 y 120/)).not.toBeInTheDocument();
+  });
+});

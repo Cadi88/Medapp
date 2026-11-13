@@ -70,3 +70,30 @@ describe('urlDelLogo', () => {
     expect(urlDelLogo({ id: 'consultorio-a', logoVersion: 2 })).not.toBe(a);
   });
 });
+
+describe('longitudes y teléfono', () => {
+  test('errorDeNombreComercial: vacío vale (borra); 1 o más de 120 no', async () => {
+    const { errorDeNombreComercial } = await import('@/features/consultorio/logica/formulario');
+    const msg = 'El nombre comercial debe tener entre 2 y 120 caracteres';
+    expect(errorDeNombreComercial('')).toBeUndefined();
+    expect(errorDeNombreComercial('  ')).toBeUndefined();
+    expect(errorDeNombreComercial(' A ')).toBe(msg);
+    expect(errorDeNombreComercial('AB')).toBeUndefined();
+    expect(errorDeNombreComercial('x'.repeat(120))).toBeUndefined();
+    expect(errorDeNombreComercial('x'.repeat(121))).toBe(msg);
+  });
+
+  test('errorDeDireccion: hasta 300', async () => {
+    const { errorDeDireccion } = await import('@/features/consultorio/logica/formulario');
+    expect(errorDeDireccion('x'.repeat(300))).toBeUndefined();
+    expect(errorDeDireccion('x'.repeat(301))).toBe('La dirección no puede pasar de 300 caracteres');
+  });
+
+  test('telefonoParaMostrar quita el prefijo del país y deja lo demás tal cual', async () => {
+    const { telefonoParaMostrar } = await import('@/features/consultorio/logica/formulario');
+    expect(telefonoParaMostrar('+525512345678', 'MX')).toBe('5512345678');
+    expect(telefonoParaMostrar('+59171234567', 'BO')).toBe('71234567');
+    expect(telefonoParaMostrar('123', 'MX')).toBe('123');
+    expect(telefonoParaMostrar(null, 'MX')).toBe('');
+  });
+});

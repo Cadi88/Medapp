@@ -41,7 +41,7 @@ describe('opcionesDeMenu', () => {
 
 describe('BarraDeNavegacion', () => {
   test('muestra las opciones, marca la actual y ofrece cerrar sesión', () => {
-    render(<BarraDeNavegacion opciones={opcionesDeMenu(claims('recepcion', true))} consultorio="Dental Sol" />);
+    render(<BarraDeNavegacion opciones={opcionesDeMenu(claims('recepcion', true))} consultorio="Dental Sol" consultorioId={USUARIO} logoVersion={0} />);
     expect(screen.getByText('Dental Sol')).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Agenda' })).toHaveAttribute('aria-current', 'page');
     expect(screen.getByRole('link', { name: 'Equipo' })).not.toHaveAttribute('aria-current');
@@ -50,7 +50,7 @@ describe('BarraDeNavegacion', () => {
 
   test('una subruta mantiene marcada su sección', () => {
     ruta.actual = `/medicos/${USUARIO}`;
-    render(<BarraDeNavegacion opciones={opcionesDeMenu(claims('medico', false))} consultorio="X" />);
+    render(<BarraDeNavegacion opciones={opcionesDeMenu(claims('medico', false))} consultorio="X" consultorioId={USUARIO} logoVersion={0} />);
     expect(screen.getByRole('link', { name: 'Médicos' })).toHaveAttribute('aria-current', 'page');
     ruta.actual = '/agenda';
   });

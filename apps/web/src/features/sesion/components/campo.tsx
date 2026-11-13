@@ -6,20 +6,32 @@ interface CampoProps extends Omit<ComponentProps<typeof Input>, 'id' | 'name'> {
   nombre: string;
   etiqueta: string;
   error?: string | undefined;
+  /** Adorno fijo antes de la entrada (p. ej. el prefijo telefónico del país). */
+  prefijo?: string;
 }
 
 /** Etiqueta + entrada + mensaje de error accesible (`aria-invalid`, `aria-describedby`). */
-export function Campo({ nombre, etiqueta, error, ...props }: CampoProps) {
+export function Campo({ nombre, etiqueta, error, prefijo, ...props }: CampoProps) {
+  const entrada = (
+    <Input
+      id={nombre}
+      name={nombre}
+      aria-invalid={error ? true : undefined}
+      aria-describedby={error ? `${nombre}-error` : undefined}
+      {...props}
+    />
+  );
   return (
     <div className="grid gap-2">
       <Label htmlFor={nombre}>{etiqueta}</Label>
-      <Input
-        id={nombre}
-        name={nombre}
-        aria-invalid={error ? true : undefined}
-        aria-describedby={error ? `${nombre}-error` : undefined}
-        {...props}
-      />
+      {prefijo ? (
+        <div className="flex items-center gap-2">
+          <span className="text-sm text-muted-foreground">{prefijo}</span>
+          {entrada}
+        </div>
+      ) : (
+        entrada
+      )}
       <MensajeDeCampo id={`${nombre}-error`}>{error}</MensajeDeCampo>
     </div>
   );

@@ -5,7 +5,15 @@ import { estadoDeFallo, type Fallo } from '@/features/comun/errores';
 import { textosDe } from '@/features/sesion/logica/validaciones';
 import type { EstadoFormulario } from '@/features/sesion/tipos';
 import { obtenerConsultorioEnApi, personalizarEnApi, quitarLogoEnApi, subirLogoEnApi } from './api';
-import { cambiosDePersonalizacion, errorDeColor, errorDeLogo, MENSAJE_LOGO_TIPO } from './logica/formulario';
+import {
+  cambiosDePersonalizacion,
+  errorDeColor,
+  errorDeDireccion,
+  errorDeLogo,
+  errorDeNombreComercial,
+  MENSAJE_LOGO_TIPO,
+  telefonoParaComparar,
+} from './logica/formulario';
 
 const CAMPOS = ['nombreComercial', 'direccion', 'telefono', 'colorPrimario'] as const;
 const MENSAJE_LOGO_NO_GUARDADO = 'No se pudo guardar el logo ahora. Intenta de nuevo más tarde.';
@@ -24,12 +32,20 @@ export async function guardarPersonalizacion(_prev: EstadoFormulario, fd: FormDa
   const t = textosDe(fd);
   const valores = Object.fromEntries(CAMPOS.flatMap((c) => (t[c] === undefined ? [] : [[c, t[c] as string]])));
   const color = (t.colorPrimario ?? '').trim().toLowerCase();
-  const errorColor = errorDeColor(color);
-  if (errorColor) return { errores: { colorPrimario: errorColor }, valores };
+  const errores = Object.fromEntries(
+    [
+      ['nombreComercial', errorDeNombreComercial(t.nombreComercial ?? '')],
+      ['direccion', errorDeDireccion(t.direccion ?? '')],
+      ['colorPrimario', errorDeColor(color)],
+    ].filter(([, e]) => e !== undefined),
+  ) as Record<string, string>;
+  if (Object.keys(errores).length > 0) return { errores, valores };
 
   const actual = await obtenerConsultorioEnApi();
   if (!actual.ok) return estadoDeFallo(actual);
-  const cambios = cambiosDePersonalizacion(actual.datos, valores);
+  // El teléfono se escribe con los dígitos nacionales (el prefijo va junto al campo): se compara ya normalizado.
+  const nuevos = valores.telefono === undefined ? valores : { ...valores, telefono: telefonoParaComparar(valores.telefono, actual.datos.pais) };
+  const cambios = cambiosDePersonalizacion(actual.datos, nuevos);
   if (Object.keys(cambios).length === 0) return { ok: true };
 
   const r = await personalizarEnApi(cambios);
