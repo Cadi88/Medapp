@@ -147,6 +147,9 @@ cerrarse (o aceptarse explícitamente) antes de poner datos reales en AWS:
 - [ ] **Imágenes de producción sin código de pruebas**: `pnpm deploy --prod` ya excluye las devDependencies, pero el
       `dist/` de `@consultorio/platform` incluye `testing/` (con Testcontainers como dependencia de producción) y la app
       desplegada lleva su `src/` y `test/` (no declara `files`); sacar `src/`, `test/` y `testing`/Testcontainers de las imágenes.
+- [ ] **Orden de despliegue de la personalización del consultorio**: desplegar en este orden: `svc-agenda` (acepta
+      `tenant.creado` v2) → `svc-identidad` → gateway (límite de 2 MB en `PUT /consultorio/logo`) → `web` (su
+      `consultorioSchema` exige los campos nuevos, así que antes de identidad fallaría al leer el consultorio).
 
 Variables nuevas (compose y CDK): `web` usa `GATEWAY_URL` (por defecto `http://gateway:8080`), `COOKIE_SEGURA` (`true` con HTTPS) y
 `WEB_ORIGEN` (origen público del sitio); `svc-identidad` recibe `ORIGENES_CONFIABLES` con ese mismo origen y el gateway `AGENDA_URL`.
