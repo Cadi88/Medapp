@@ -240,3 +240,45 @@ describe('llamarGateway · Origin hacia Better Auth (R11)', () => {
     expect(peticion().headers.get('origin')).toBeNull();
   });
 });
+
+describe('llamarGateway · binario', () => {
+  test('cuerpoBinario se envía crudo con su Content-Type y sin JSON', async () => {
+    c.poner('token_consultorio', 'jwt');
+    fetchFalso.mockResolvedValue(respuestaJson(200, { logoVersion: 2 }));
+    const bytes = new Uint8Array([1, 2, 3]);
+
+    const r = await llamarGateway('/api/identidad/consultorio/logo', { metodo: 'PUT', cuerpoBinario: { bytes, tipo: 'image/png' }, auth: 'token' });
+
+    expect(r).toEqual({ ok: true, datos: { logoVersion: 2 } });
+    const p = peticion();
+    expect(p.init.method).toBe('PUT');
+    expect(p.init.body).toBe(bytes);
+    expect(p.headers.get('content-type')).toBe('image/png');
+  });
+
+  test('respuestaBinaria devuelve bytes, tipo y cabeceras', async () => {
+    c.poner('token_consultorio', 'jwt');
+    fetchFalso.mockResolvedValue(new Response(new Uint8Array([9, 8, 7]), { status: 200, headers: { 'content-type': 'image/png', etag: 'x' } }));
+
+    const r = await llamarGateway('/api/identidad/consultorio/logo', { auth: 'token', respuestaBinaria: true });
+
+    expect(r.ok).toBe(true);
+    if (r.ok) {
+      const d = r.datos as { bytes: Uint8Array; tipo: string; cabeceras: Headers };
+      expect(d.bytes).toEqual(new Uint8Array([9, 8, 7]));
+      expect(d.tipo).toBe('image/png');
+      expect(d.cabeceras.get('etag')).toBe('x');
+    }
+    expect(peticion().headers.get('accept')).toBe('*/*');
+  });
+
+  test('respuestaBinaria sin content-type usa application/octet-stream; un error sigue siendo JSON', async () => {
+    fetchFalso.mockResolvedValueOnce(new Response(new Uint8Array([1]), { status: 200 }));
+    const ok = await llamarGateway('/api/identidad/consultorio/logo', { auth: 'token', respuestaBinaria: true });
+    expect(ok.ok && (ok.datos as { tipo: string }).tipo).toBe('application/octet-stream');
+
+    fetchFalso.mockResolvedValueOnce(respuestaJson(404, { code: 'NO_ENCONTRADO', message: 'Sin logo' }));
+    const r = await llamarGateway('/api/identidad/consultorio/logo', { auth: 'token', respuestaBinaria: true });
+    expect(r).toMatchObject({ ok: false, status: 404, error: { code: 'NO_ENCONTRADO' } });
+  });
+});

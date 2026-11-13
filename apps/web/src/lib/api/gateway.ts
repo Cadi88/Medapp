@@ -7,6 +7,10 @@ import { errorDeRespuesta, exito, fallo, type Resultado } from './resultado';
 export interface OpcionesGateway<T> {
   metodo?: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
   cuerpo?: unknown;
+  /** Cuerpo crudo (p. ej. una imagen) con su `Content-Type`; excluyente con `cuerpo`. */
+  cuerpoBinario?: { bytes: Uint8Array; tipo: string };
+  /** La respuesta exitosa se devuelve como bytes (`RespuestaBinaria`) en lugar de JSON; no se valida con `esquema`. */
+  respuestaBinaria?: true;
   /** Esquema de `packages/contracts` con el que se valida la respuesta exitosa. */
   esquema?: z.ZodType<T>;
   /** `token`: Bearer con el JWT del tenant. `sesion`: cookie de Better Auth (solo rutas de identidad). */
@@ -24,6 +28,13 @@ export interface OpcionesGateway<T> {
 const PREFIJO_IDENTIDAD = '/api/identidad/';
 const PREFIJO_AUTH = '/api/identidad/auth/';
 
+/** Respuesta exitosa leída como bytes. */
+export interface RespuestaBinaria {
+  bytes: Uint8Array;
+  tipo: string;
+  cabeceras: Headers;
+}
+
 const ERROR_RED = { code: 'INTERNO', message: 'No se pudo contactar al servidor' } as const;
 const ERROR_RESPUESTA = { code: 'INTERNO', message: 'Respuesta inesperada del servidor' } as const;
 
@@ -40,8 +51,9 @@ function urlDelGateway(ruta: string): URL {
 
 /** `url` ya normalizada: la decisión de enviar la cookie se toma sobre el `pathname` final, no sobre el texto recibido. */
 async function cabeceras<T>(url: URL, o: OpcionesGateway<T>): Promise<Headers> {
-  const h = new Headers({ accept: 'application/json' });
-  if (o.cuerpo !== undefined) h.set('content-type', 'application/json');
+  const h = new Headers({ accept: o.respuestaBinaria ? '*/*' : 'application/json' });
+  if (o.cuerpoBinario) h.set('content-type', o.cuerpoBinario.tipo);
+  else if (o.cuerpo !== undefined) h.set('content-type', 'application/json');
   if (o.ip) h.set('x-forwarded-for', o.ip);
   // Better Auth rechaza POST con cookie sin un Origin confiable; el fetch del servidor no manda ninguno.
   const origen = webOrigen();
@@ -78,7 +90,11 @@ export async function llamarGateway<T = unknown>(ruta: string, o: OpcionesGatewa
     res = await fetch(url.toString(), {
       method: o.metodo ?? 'GET',
       headers: await cabeceras(url, o),
-      ...(o.cuerpo === undefined ? {} : { body: JSON.stringify(o.cuerpo) }),
+      ...(o.cuerpoBinario
+        ? { body: o.cuerpoBinario.bytes as BodyInit }
+        : o.cuerpo === undefined
+          ? {}
+          : { body: JSON.stringify(o.cuerpo) }),
       cache: 'no-store',
       redirect: 'manual',
     });
@@ -88,6 +104,11 @@ export async function llamarGateway<T = unknown>(ruta: string, o: OpcionesGatewa
 
   const setCookies = o.auth === 'token' ? undefined : res.headers.getSetCookie();
   const conCookies = setCookies?.length ? setCookies : undefined;
+  if (o.respuestaBinaria && res.ok) {
+    const bytes = new Uint8Array(await res.arrayBuffer());
+    const tipo = res.headers.get('content-type') ?? 'application/octet-stream';
+    return exito({ bytes, tipo, cabeceras: res.headers } as T, conCookies);
+  }
   const cuerpo = await leerCuerpo(res);
   if (!res.ok) return fallo(res.status, errorDeRespuesta(res.status, cuerpo), conCookies);
   if (!o.esquema) return exito(cuerpo as T, conCookies);

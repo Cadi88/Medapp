@@ -45,6 +45,19 @@ describe('TablaBitacora', () => {
     expect(screen.queryByRole('button', { name: 'Ver más' })).not.toBeInTheDocument();
   });
 
+  test('bitácora: consultorio.actualizado → "Consultorio actualizado" con campos en español', () => {
+    render(
+      <TablaBitacora
+        {...props}
+        eventos={[evento(1, { accion: 'consultorio.actualizado', detalle: { campos: ['logo', 'colorPrimario'] } })]}
+        siguiente={null}
+      />,
+    );
+    const fila = screen.getAllByRole('row')[1] as HTMLElement;
+    expect(within(fila).getByText('Consultorio actualizado')).toBeInTheDocument();
+    expect(within(fila).getByText('Logo, Color')).toBeInTheDocument();
+  });
+
   test('sin eventos avisa que no hay movimientos', () => {
     render(<TablaBitacora {...props} eventos={[]} siguiente={null} />);
     expect(screen.getByText('No hay movimientos con estos filtros')).toBeInTheDocument();

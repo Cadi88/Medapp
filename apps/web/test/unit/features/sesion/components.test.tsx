@@ -91,6 +91,22 @@ describe('FormularioRegistro', () => {
     expect(valores.every((v) => v.startsWith('America/'))).toBe(true);
   });
 
+  test('registro envía pais MX y muestra Bolivia deshabilitado', async () => {
+    acciones.registrarConsultorio.mockResolvedValueOnce({});
+    render(<FormularioRegistro />);
+    const pais = screen.getByLabelText('País') as HTMLSelectElement;
+    expect(pais.value).toBe('MX');
+    const opciones = [...pais.options].map((o) => [o.value, o.textContent, o.disabled]);
+    expect(opciones).toEqual([
+      ['MX', 'México', false],
+      ['BO', 'Bolivia (próximamente)', true],
+    ]);
+    await enviar(/Crear cuenta/);
+    await waitFor(() => expect(acciones.registrarConsultorio).toHaveBeenCalled());
+    const fd = acciones.registrarConsultorio.mock.calls[0]?.[1] as FormData;
+    expect(fd.get('pais')).toBe('MX');
+  });
+
   test('muestra el error del identificador y conserva lo escrito', async () => {
     acciones.registrarConsultorio.mockResolvedValueOnce({
       errores: { slug: 'Ese identificador ya está en uso' },

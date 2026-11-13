@@ -76,7 +76,7 @@ export async function continuarAConsultorio(): Promise<EstadoFormulario> {
 
 export async function registrarConsultorio(_prev: EstadoFormulario, fd: FormData): Promise<EstadoFormulario> {
   const texto = textosDe(fd);
-  const valores = valoresVisibles(texto, ['nombreConsultorio', 'slug', 'zonaHoraria', 'esMedico', 'nombre', 'email']);
+  const valores = valoresVisibles(texto, ['nombreConsultorio', 'slug', 'zonaHoraria', 'pais', 'esMedico', 'nombre', 'email']);
   const v = leer(registroSchema, { ...texto, esMedico: texto.esMedico === 'on' }, valores);
   if ('estado' in v) return v.estado;
   const d = v.datos;
@@ -87,6 +87,7 @@ export async function registrarConsultorio(_prev: EstadoFormulario, fd: FormData
       nombreConsultorio: d.nombreConsultorio,
       slug: d.slug,
       zonaHoraria: d.zonaHoraria,
+      pais: d.pais,
       esMedico: d.esMedico,
       admin: { nombre: d.nombre, email: d.email, password: d.password },
     },

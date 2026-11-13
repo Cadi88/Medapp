@@ -19,6 +19,7 @@ const registroValido = {
   nombre: 'Ana López',
   email: 'ana@ejemplo.mx',
   password: 'una-clave-larga',
+  pais: 'MX',
 };
 
 describe('validaciones de formularios', () => {
@@ -37,6 +38,16 @@ describe('validaciones de formularios', () => {
     const r = registroSchema.safeParse({ ...registroValido, zonaHoraria: 'Marte/Olimpo', password: 'corta' });
     expect(r.success).toBe(false);
     if (!r.success) expect(Object.keys(erroresDeZod(r.error)).sort()).toEqual(['password', 'zonaHoraria']);
+  });
+
+  test('registro: el país es MX por omisión; Bolivia aún no está habilitada', () => {
+    const sinPais: Record<string, unknown> = { ...registroValido };
+    delete sinPais.pais;
+    const r = registroSchema.safeParse(sinPais);
+    expect(r.success && r.data.pais).toBe('MX');
+    const bo = registroSchema.safeParse({ ...registroValido, pais: 'BO' });
+    expect(bo.success).toBe(false);
+    if (!bo.success) expect(erroresDeZod(bo.error).pais).toBe('Elige un país disponible');
   });
 
   test('registro: campos vacíos o ausentes dan mensajes por campo', () => {

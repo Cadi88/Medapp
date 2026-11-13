@@ -16,6 +16,10 @@ describe('next.config: cabeceras de seguridad', () => {
     });
   });
 
+  test('las acciones del servidor aceptan cuerpos de hasta 2 MB (el logo se valida a 1 MB en la acción)', () => {
+    expect(nextConfig.experimental?.serverActions?.bodySizeLimit).toBe('2mb');
+  });
+
   test('la CSP no restringe scripts ni estilos (Next y FullCalendar los insertan en línea)', async () => {
     const csp = (await nextConfig.headers?.())?.flatMap((r) => r.headers).find((h) => h.key === 'Content-Security-Policy')?.value ?? '';
     expect(csp).not.toMatch(/script-src|style-src|default-src/);

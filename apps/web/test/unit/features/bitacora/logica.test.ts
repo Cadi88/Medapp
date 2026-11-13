@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import { ACCIONES_CONOCIDAS, etiquetaAccion } from '@/features/bitacora/logica/acciones';
+import { ACCIONES_CONOCIDAS, detalleDeAccion, etiquetaAccion } from '@/features/bitacora/logica/acciones';
 import { consultaDesdeParametros, nombreDelActor } from '@/features/bitacora/logica/filtros';
 
 describe('etiquetaAccion', () => {
@@ -15,6 +15,7 @@ describe('etiquetaAccion', () => {
       ['cita.reprogramada', 'Cita reprogramada'],
       ['cita.cancelada', 'Cita cancelada'],
       ['cita.estado_cambiado', 'Estado de cita cambiado'],
+      ['consultorio.actualizado', 'Consultorio actualizado'],
     ]);
   });
 
@@ -51,5 +52,23 @@ describe('nombreDelActor', () => {
     expect(nombreDelActor('a1', nombres)).toBe('Dra. Ruiz');
     expect(nombreDelActor(null, nombres)).toBe('Sistema');
     expect(nombreDelActor('01a1cd34-0000-7000-8000-000000000001', nombres)).toBe('Exmiembro (01a1cd34)');
+  });
+});
+
+describe('detalleDeAccion', () => {
+  test('consultorio.actualizado lista los campos en español', () => {
+    expect(
+      detalleDeAccion('consultorio.actualizado', {
+        campos: ['logo', 'colorPrimario', 'nombreComercial', 'direccion', 'telefono'],
+      }),
+    ).toBe('Logo, Color, Nombre comercial, Dirección, Teléfono');
+  });
+
+  test('sin detalle útil o de otra acción no hay texto; un campo desconocido se omite', () => {
+    expect(detalleDeAccion('consultorio.actualizado', null)).toBeUndefined();
+    expect(detalleDeAccion('consultorio.actualizado', { campos: 'x' })).toBeUndefined();
+    expect(detalleDeAccion('consultorio.actualizado', { campos: ['nuevo'] })).toBeUndefined();
+    expect(detalleDeAccion('consultorio.actualizado', { campos: ['logo', 'nuevo'] })).toBe('Logo');
+    expect(detalleDeAccion('cita.creada', { campos: ['logo'] })).toBeUndefined();
   });
 });

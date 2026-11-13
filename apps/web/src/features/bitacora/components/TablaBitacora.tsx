@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { AvisoDeError } from '@/features/sesion/components/campo';
 import { cargarMasEventos } from '../actions';
-import { etiquetaAccion } from '../logica/acciones';
+import { detalleDeAccion, etiquetaAccion } from '../logica/acciones';
 import { formatearFechaEvento, nombreDelActor } from '../logica/filtros';
 import type { ConsultaBitacora, EventoAuditoria } from '../tipos';
 
@@ -53,7 +53,12 @@ export function TablaBitacora({ eventos: iniciales, siguiente: cursorInicial, no
             <TableRow key={e.id}>
               <TableCell>{formatearFechaEvento(e.ocurrido_en, zona)}</TableCell>
               <TableCell>{nombreDelActor(e.actor_id, nombres)}</TableCell>
-              <TableCell>{etiquetaAccion(e.accion)}</TableCell>
+              <TableCell>
+                {etiquetaAccion(e.accion)}
+                {detalleDeAccion(e.accion, e.detalle) ? (
+                  <span className="block text-xs text-muted-foreground">{detalleDeAccion(e.accion, e.detalle)}</span>
+                ) : null}
+              </TableCell>
             </TableRow>
           ))}
         </TableBody>

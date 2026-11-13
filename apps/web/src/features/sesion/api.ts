@@ -1,4 +1,5 @@
 import 'server-only';
+import type { CodigoPais } from '@consultorio/contracts';
 import { z } from 'zod';
 import { llamarGateway } from '@/lib/api/gateway';
 import type { Resultado } from '@/lib/api/resultado';
@@ -24,6 +25,7 @@ export interface DatosRegistro {
   nombreConsultorio: string;
   slug: string;
   zonaHoraria: string;
+  pais: CodigoPais;
   esMedico: boolean;
   admin: { nombre: string; email: string; password: string };
 }

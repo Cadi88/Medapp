@@ -13,6 +13,8 @@ export const eventoAuditoriaSchema = z.object({
   recurso_tipo: z.string().nullable().optional(),
   recurso_id: z.string().nullable().optional(),
   servicio: z.string().optional(),
+  /** `data` del evento (JSON libre; cada acción define su forma); null si no traía datos. */
+  detalle: z.unknown().optional(),
 });
 export type EventoAuditoria = z.infer<typeof eventoAuditoriaSchema>;
 

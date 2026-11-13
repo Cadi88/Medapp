@@ -29,11 +29,12 @@ describe('opcionesDeMenu', () => {
     expect(o.find((x) => x.texto === 'Médicos')?.href).toBe(`/medicos/${USUARIO}`);
   });
 
-  test('admin (recepción o médico) ve Equipo y Bitácora; Médicos va a la lista', () => {
+  test('admin (recepción o médico) ve Mi consultorio, Equipo y Bitácora; Médicos va a la lista', () => {
     for (const rol of ['recepcion', 'medico'] as const) {
       const o = opcionesDeMenu(claims(rol, true));
-      expect(o.map((x) => x.texto)).toEqual(['Agenda', 'Médicos', 'Equipo', 'Bitácora', 'Perfil']);
+      expect(o.map((x) => x.texto)).toEqual(['Agenda', 'Médicos', 'Mi consultorio', 'Equipo', 'Bitácora', 'Perfil']);
       expect(o.find((x) => x.texto === 'Médicos')?.href).toBe('/medicos');
+      expect(o.find((x) => x.texto === 'Mi consultorio')?.href).toBe('/consultorio');
     }
   });
 });

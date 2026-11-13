@@ -48,6 +48,26 @@ export function FormularioRegistro() {
           </select>
           <MensajeDeCampo id="zonaHoraria-error">{estado.errores?.zonaHoraria}</MensajeDeCampo>
         </div>
+        <div className="grid gap-2">
+          <label htmlFor="pais" className="text-sm font-medium">
+            País
+          </label>
+          <select
+            key={v?.pais}
+            id="pais"
+            name="pais"
+            defaultValue={v?.pais ?? 'MX'}
+            aria-invalid={estado.errores?.pais ? true : undefined}
+            aria-describedby={estado.errores?.pais ? 'pais-error' : undefined}
+            className="h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm shadow-xs"
+          >
+            <option value="MX">México</option>
+            <option value="BO" disabled>
+              Bolivia (próximamente)
+            </option>
+          </select>
+          <MensajeDeCampo id="pais-error">{estado.errores?.pais}</MensajeDeCampo>
+        </div>
         <Campo nombre="nombre" etiqueta="Tu nombre" autoComplete="name" defaultValue={v?.nombre} error={estado.errores?.nombre} />
         <Campo nombre="email" etiqueta="Correo electrónico" type="email" autoComplete="username" defaultValue={v?.email} error={estado.errores?.email} />
         <Campo nombre="password" etiqueta="Contraseña" type="password" autoComplete="new-password" error={estado.errores?.password} />

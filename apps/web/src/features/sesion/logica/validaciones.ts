@@ -1,3 +1,4 @@
+import { PAISES_HABILITADOS } from '@consultorio/contracts';
 import { z } from 'zod';
 
 export const ZONA_POR_OMISION = 'America/Mexico_City';
@@ -38,6 +39,10 @@ export const registroSchema = z.object({
     .string({ error: 'El identificador es obligatorio' })
     .regex(/^[a-z0-9-]{3,40}$/, 'Usa de 3 a 40 caracteres: minúsculas, números y guiones'),
   zonaHoraria: z.string({ error: 'Elige una zona horaria' }).refine((z) => ZONAS.has(z), 'Elige una zona horaria válida'),
+  pais: z
+    .enum(['MX', 'BO'], { error: 'Elige un país disponible' })
+    .refine((p) => PAISES_HABILITADOS.includes(p), 'Elige un país disponible')
+    .default('MX'),
   esMedico: z.boolean(),
   nombre: requerido('Tu nombre').pipe(z.string().max(120, 'Máximo 120 caracteres')),
   email: correo,

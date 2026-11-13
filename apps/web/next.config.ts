@@ -21,6 +21,8 @@ const nextConfig: NextConfig = {
   outputFileTracingRoot: raizMonorepo,
   transpilePackages: ['@consultorio/contracts'],
   poweredByHeader: false,
+  // El logo (hasta 1 MB) viaja en una acción del servidor; el límite por omisión de 1 MB lo cortaría antes de validarlo.
+  experimental: { serverActions: { bodySizeLimit: '2mb' } },
   headers: async () => [{ source: '/:path*', headers: CABECERAS_DE_SEGURIDAD }],
 };
 

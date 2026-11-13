@@ -306,6 +306,7 @@ describe('registrarConsultorio', () => {
     nombre: 'Ana López',
     email: 'ana@ejemplo.mx',
     password: 'una-clave-larga',
+    pais: 'MX',
   };
 
   test('registra, inicia sesión y redirige a /configurar-mfa', async () => {
@@ -324,6 +325,7 @@ describe('registrarConsultorio', () => {
         nombreConsultorio: 'Dental Sol',
         slug: 'dental-sol',
         zonaHoraria: 'America/Mexico_City',
+        pais: 'MX',
         esMedico: true,
         admin: { nombre: 'Ana López', email: 'ana@ejemplo.mx', password: 'una-clave-larga' },
       },
