@@ -150,10 +150,21 @@ describe('logo del consultorio', () => {
     expect(r.json()).toEqual({ code: 'VALIDACION', message: 'El logo debe pesar menos de 1 MB', details: { campo: 'logo' } });
   });
 
-  test('Review Focus 4: el token de B nunca obtiene el logo de A', async () => {
-    expect((await getLogo(a.adminToken)).statusCode).toBe(200);
-    expect((await getLogo(b.adminToken)).statusCode).toBe(404);
-    expect(consultorioSchema.parse((await getConsultorio(b.adminToken)).json()).logoVersion).toBe(0);
+  test('Review Focus 4: cada token obtiene solo los bytes de su propio logo, nunca los del otro consultorio', async () => {
+    const verde = await sharp({ create: { width: 64, height: 32, channels: 3, background: { r: 20, g: 160, b: 40 } } }).png().toBuffer();
+    expect((await put(verde, b.adminToken)).statusCode).toBe(200);
+
+    const delA = await getLogo(a.adminToken);
+    const delB = await getLogo(b.adminToken);
+    expect([delA.statusCode, delB.statusCode]).toEqual([200, 200]);
+    const bytesA = (await almacen.leer((await fila(a.tenantId)).logo_key!))!.bytes;
+    const bytesB = (await almacen.leer((await fila(b.tenantId)).logo_key!))!.bytes;
+    expect(Buffer.compare(bytesA, bytesB)).not.toBe(0);
+    expect(Buffer.compare(delA.rawPayload, Buffer.from(bytesA))).toBe(0);
+    expect(Buffer.compare(delB.rawPayload, Buffer.from(bytesB))).toBe(0);
+    expect(Buffer.compare(delB.rawPayload, delA.rawPayload)).not.toBe(0);
+    expect((await sharp(delB.rawPayload).metadata()).width).toBe(64);
+    expect(consultorioSchema.parse((await getConsultorio(b.adminToken)).json()).logoVersion).toBe(1);
   });
 
   test('cualquier miembro lee el logo; recepción no admin → 403 en PUT, DELETE y PATCH', async () => {
