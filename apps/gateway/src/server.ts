@@ -25,6 +25,7 @@ export interface GatewayOptions {
 type Metodo = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
 /** Ruta interna a la que se reescribe toda petición `/api/` con ruta no permitida (responde 400). */
 const RUTA_INVALIDA = '/__ruta_invalida';
+const LIMITE_LOGO = 2 * 1024 * 1024;
 const METODOS: Metodo[] = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'];
 
 /** Rutas con rate limit por IP (mismas que `REGLAS_ABIERTAS`). */
@@ -112,6 +113,8 @@ export async function buildGateway(o: GatewayOptions): Promise<FastifyInstance> 
   for (const r of RUTAS_LIMITADAS) {
     app.route({ method: r.metodos, url: r.url, config: { rateLimit: {} }, handler: proxear });
   }
+  // El logo se sube crudo y puede pesar hasta 2 MB (identidad valida el tamaño del archivo); el resto conserva el límite por omisión.
+  app.route({ method: 'PUT', url: '/api/identidad/consultorio/logo', bodyLimit: LIMITE_LOGO, handler: proxear });
   for (const s of ['identidad', 'auditoria', 'agenda']) {
     app.route({ method: METODOS, url: `/api/${s}/*`, handler: proxear });
   }

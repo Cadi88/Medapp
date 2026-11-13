@@ -367,3 +367,32 @@ describe('destino no disponible', () => {
     });
   });
 });
+
+describe('límite del cuerpo', () => {
+  const imagen = (bytes: number): Buffer => Buffer.alloc(bytes, 1);
+
+  test('acepta 1.5 MB en PUT /api/identidad/consultorio/logo y lo reenvía íntegro', async () => {
+    const r = await gw.inject({ method: 'PUT', url: '/api/identidad/consultorio/logo', headers: { ...auth(await jwks.sign(claims)), 'content-type': 'image/png' }, payload: imagen(1_500_000) });
+    expect(r.statusCode).toBe(200);
+    const eco = r.json() as { method: string; url: string };
+    expect(eco).toMatchObject({ method: 'PUT', url: '/consultorio/logo' });
+    expect((r.json() as { body: string }).body).toHaveLength(1_500_000);
+  });
+
+  test('rechaza más de 2 MB en el logo', async () => {
+    const r = await gw.inject({ method: 'PUT', url: '/api/identidad/consultorio/logo', headers: { ...auth(await jwks.sign(claims)), 'content-type': 'image/png' }, payload: imagen(2_200_000) });
+    expect(r.statusCode).toBe(413);
+  });
+
+  test('rechaza más de 1 MB en cualquier otra ruta (también PUT de otra ruta y el logo por GET/POST)', async () => {
+    const headers = { ...auth(await jwks.sign(claims)), 'content-type': 'application/octet-stream' };
+    for (const [method, url] of [
+      ['PUT', '/api/identidad/consultorio/otra'],
+      ['POST', '/api/identidad/consultorio/logo'],
+      ['POST', '/api/agenda/citas'],
+    ] as const) {
+      const r = await gw.inject({ method, url, headers, payload: imagen(1_500_000) });
+      expect(r.statusCode, `${method} ${url}`).toBe(413);
+    }
+  });
+});

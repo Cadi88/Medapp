@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { NatsConnection } from '@nats-io/transport-node';
-import { createPool, runMigrations } from '@consultorio/platform';
+import { createPool, runMigrations, type Almacen } from '@consultorio/platform';
 import { startPostgres, type TestPostgres } from '@consultorio/platform/testing';
 import type { FastifyInstance, LightMyRequestResponse } from 'fastify';
 import { exportJWK, generateKeyPair, type JWK } from 'jose';
@@ -56,9 +56,20 @@ export async function llavePrivada(): Promise<JWK> {
   return { ...(await exportJWK(privateKey)), kid: 'identidad-test' };
 }
 
-export async function servidor(env: Entorno, nc?: NatsConnection): Promise<FastifyInstance> {
+/** Almacén en memoria para las pruebas que no miran archivos. */
+export function almacenEnMemoria(): Almacen {
+  const objetos = new Map<string, { bytes: Uint8Array; tipo: string }>();
+  return {
+    guardar: async (llave, bytes, tipo) => void objetos.set(llave, { bytes, tipo }),
+    leer: async (llave) => objetos.get(llave) ?? null,
+    borrar: async (llave) => void objetos.delete(llave),
+  };
+}
+
+export async function servidor(env: Entorno, nc?: NatsConnection, almacen: Almacen = almacenEnMemoria()): Promise<FastifyInstance> {
   const app = await buildServer({
     pool: env.appPool,
+    almacen,
     ...(nc ? { nc } : {}),
     jwtPrivateJwk: await llavePrivada(),
     betterAuth: { secret: 'secreto-de-pruebas-'.repeat(3), baseURL: 'http://localhost:3000' },

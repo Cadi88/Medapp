@@ -1,5 +1,5 @@
 import type { NatsConnection } from '@nats-io/transport-node';
-import { createHttpApp, startOutboxPublisher } from '@consultorio/platform';
+import { createHttpApp, startOutboxPublisher, type Almacen } from '@consultorio/platform';
 import type { FastifyInstance } from 'fastify';
 import { createLocalJWKSet, type JWK } from 'jose';
 import type pg from 'pg';
@@ -8,6 +8,7 @@ import { publicJwkFrom } from './jwt-keys.js';
 import { authRoutes } from './routes/auth.js';
 import { consultorioRoutes } from './routes/consultorio.js';
 import { datosFiscalesRoutes } from './routes/datos-fiscales.js';
+import { logoRoutes } from './routes/logo.js';
 import { miembrosRoutes } from './routes/miembros.js';
 import { perfilRoutes } from './routes/perfil.js';
 import { createRegistroDeps, registroRoutes } from './routes/registro.js';
@@ -16,6 +17,8 @@ import { sesionRoutes } from './routes/sesion.js';
 export interface ServerOptions {
   /** Pool del rol `identidad_app`. */
   pool: pg.Pool;
+  /** Almacenamiento de archivos (logo del consultorio). */
+  almacen: Almacen;
   /** Sin conexión NATS no se arranca el publicador del outbox (pruebas que solo miran la tabla). */
   nc?: NatsConnection;
   /** Llave Ed25519 con la que identidad firma los tokens de tenant; de ella se deriva el JWKS local. */
@@ -44,6 +47,7 @@ export async function buildServer(o: ServerOptions): Promise<FastifyInstance> {
   await app.register(registroRoutes, { deps: createRegistroDeps(o.pool, auth, app.log) });
   await app.register(sesionRoutes, { auth, pool: o.pool, jwtPrivateJwk: o.jwtPrivateJwk });
   await app.register(consultorioRoutes, { pool: o.pool });
+  await app.register(logoRoutes, { pool: o.pool, almacen: o.almacen });
   await app.register(miembrosRoutes, { auth, pool: o.pool });
   await app.register(perfilRoutes, { pool: o.pool });
   await app.register(datosFiscalesRoutes, { pool: o.pool });

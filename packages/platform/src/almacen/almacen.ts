@@ -18,13 +18,16 @@ export interface ConfigAlmacen {
   secretAccessKey?: string;
 }
 
+/** Una variable vacía (p. ej. una variable de compose sin valor) cuenta como ausente. */
+const opcional = z.preprocess((v) => (v === '' ? undefined : v), z.string().min(1).optional());
+
 const EnvSchema = z
   .object({
     S3_BUCKET: z.string().min(1),
     S3_REGION: z.string().min(1),
-    S3_ENDPOINT: z.string().min(1).optional(),
-    S3_ACCESS_KEY_ID: z.string().min(1).optional(),
-    S3_SECRET_ACCESS_KEY: z.string().min(1).optional(),
+    S3_ENDPOINT: opcional,
+    S3_ACCESS_KEY_ID: opcional,
+    S3_SECRET_ACCESS_KEY: opcional,
   })
   .refine((e) => !e.S3_ENDPOINT || (e.S3_ACCESS_KEY_ID && e.S3_SECRET_ACCESS_KEY), {
     message: 'S3_ENDPOINT requiere S3_ACCESS_KEY_ID y S3_SECRET_ACCESS_KEY',

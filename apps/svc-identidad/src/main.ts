@@ -1,6 +1,15 @@
 import { fileURLToPath } from 'node:url';
 import { connect } from '@nats-io/transport-node';
-import { createPool, ensureStreams, initTelemetry, runMigrations, shutdownTelemetry } from '@consultorio/platform';
+import {
+  asegurarBucket,
+  configAlmacenDesdeEnv,
+  crearAlmacenS3,
+  createPool,
+  ensureStreams,
+  initTelemetry,
+  runMigrations,
+  shutdownTelemetry,
+} from '@consultorio/platform';
 import type { JWK } from 'jose';
 import { buildServer } from './server.js';
 
@@ -23,15 +32,18 @@ const env = {
   origenesConfiables: (process.env.ORIGENES_CONFIABLES ?? '').split(',').map((o) => o.trim()).filter(Boolean),
   // Como el valor por defecto de Better Auth: límite activo solo en producción.
   authRateLimit: process.env.NODE_ENV === 'production',
+  // Nunca se registra: lleva la clave secreta del almacenamiento.
+  almacen: configAlmacenDesdeEnv(process.env),
 };
 
 initTelemetry('svc-identidad');
 await runMigrations(env.migratorUrl, fileURLToPath(new URL('../migrations', import.meta.url)));
 
+await asegurarBucket(env.almacen);
 const pool = createPool(env.databaseUrl);
 const nc = await connect({ servers: env.natsUrl });
 await ensureStreams(nc);
-const app = await buildServer({ pool, nc, jwtPrivateJwk: env.jwtPrivateJwk, betterAuth: { secret: env.authSecret, baseURL: env.authUrl, rateLimitEnabled: env.authRateLimit, trustedOrigins: env.origenesConfiables } });
+const app = await buildServer({ pool, nc, almacen: crearAlmacenS3(env.almacen), jwtPrivateJwk: env.jwtPrivateJwk, betterAuth: { secret: env.authSecret, baseURL: env.authUrl, rateLimitEnabled: env.authRateLimit, trustedOrigins: env.origenesConfiables } });
 
 const apagar = async (): Promise<void> => {
   await app.close();

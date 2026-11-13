@@ -46,3 +46,9 @@ export const MedicoActualizado = defineEvent(
   1,
   z.object({ usuarioId: z.string().uuid(), cedulaProfesional: z.string(), especialidad: z.string() }),
 );
+
+export const ConsultorioActualizado = defineEvent(
+  'consultorio.actualizado',
+  1,
+  z.object({ campos: z.array(z.enum(['nombreComercial', 'direccion', 'telefono', 'colorPrimario', 'logo'])).min(1) }),
+);

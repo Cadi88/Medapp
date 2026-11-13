@@ -55,3 +55,14 @@ export const altaMiembroRespuestaSchema = z.object({
   cuentaCreada: z.boolean(),
 });
 export type AltaMiembroRespuesta = z.infer<typeof altaMiembroRespuestaSchema>;
+
+/** Cuerpo de PATCH /consultorio/personalizacion: al menos un campo; `null` borra el valor. Teléfono y color se validan en el servicio (dependen del país). */
+export const personalizacionSchema = z
+  .strictObject({
+    nombreComercial: z.string().trim().min(2).max(120).nullable().optional(),
+    direccion: z.string().trim().max(300).nullable().optional(),
+    telefono: z.string().nullable().optional(),
+    colorPrimario: z.string().nullable().optional(),
+  })
+  .refine((v) => Object.values(v).some((x) => x !== undefined), { message: 'Se requiere al menos un campo' });
+export type Personalizacion = z.infer<typeof personalizacionSchema>;

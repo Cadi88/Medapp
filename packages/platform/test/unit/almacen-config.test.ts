@@ -41,6 +41,12 @@ describe('configAlmacenDesdeEnv', () => {
     });
   });
 
+  test('S3_ENDPOINT y credenciales vacías cuentan como ausentes', () => {
+    expect(
+      configAlmacenDesdeEnv({ S3_BUCKET: 'b', S3_REGION: 'r', S3_ENDPOINT: '', S3_ACCESS_KEY_ID: '', S3_SECRET_ACCESS_KEY: '' }),
+    ).toEqual({ bucket: 'b', region: 'r' });
+  });
+
   test('S3_BUCKET y S3_REGION son obligatorias', () => {
     expect(() => configAlmacenDesdeEnv({ S3_REGION: 'r' })).toThrow();
     expect(() => configAlmacenDesdeEnv({ S3_BUCKET: 'b' })).toThrow();

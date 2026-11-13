@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import { altaMiembroRespuestaSchema, consultorioSchema, editarMiembroSchema, miembroSchema, miembrosRespuestaSchema } from '../../src/index.js';
+import { altaMiembroRespuestaSchema, consultorioSchema, editarMiembroSchema, miembroSchema, miembrosRespuestaSchema, personalizacionSchema } from '../../src/index.js';
 
 const U = '0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5c';
 const base = {
@@ -65,5 +65,22 @@ describe('altaMiembroRespuestaSchema (POST /miembros)', () => {
     expect(altaMiembroRespuestaSchema.parse(r)).toEqual(r);
     expect(altaMiembroRespuestaSchema.safeParse({ usuarioId: U, rol: 'recepcion', admin: false }).success).toBe(false);
     expect(altaMiembroRespuestaSchema.safeParse({ ...r, rol: 'admin' }).success).toBe(false);
+  });
+});
+
+describe('personalizacionSchema', () => {
+  test('acepta campos sueltos o null y recorta espacios', () => {
+    expect(personalizacionSchema.parse({ nombreComercial: '  Clínica Sol ' })).toEqual({ nombreComercial: 'Clínica Sol' });
+    expect(personalizacionSchema.parse({ direccion: null, telefono: null, colorPrimario: null })).toEqual({ direccion: null, telefono: null, colorPrimario: null });
+  });
+  test('exige al menos un campo y rechaza campos extra', () => {
+    expect(personalizacionSchema.safeParse({}).success).toBe(false);
+    expect(personalizacionSchema.safeParse({ nombreComercial: 'Clínica', extra: 1 }).success).toBe(false);
+  });
+  test('límites: nombre 2..120 y dirección ≤ 300', () => {
+    expect(personalizacionSchema.safeParse({ nombreComercial: 'a' }).success).toBe(false);
+    expect(personalizacionSchema.safeParse({ nombreComercial: 'a'.repeat(121) }).success).toBe(false);
+    expect(personalizacionSchema.safeParse({ direccion: 'a'.repeat(300) }).success).toBe(true);
+    expect(personalizacionSchema.safeParse({ direccion: 'a'.repeat(301) }).success).toBe(false);
   });
 });
