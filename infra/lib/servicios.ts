@@ -18,6 +18,7 @@ import {
   ListenerCondition,
   SslPolicy,
 } from 'aws-cdk-lib/aws-elasticloadbalancingv2';
+import { PolicyStatement } from 'aws-cdk-lib/aws-iam';
 import { Key, type IKey } from 'aws-cdk-lib/aws-kms';
 import { RetentionDays } from 'aws-cdk-lib/aws-logs';
 import { Secret } from 'aws-cdk-lib/aws-secretsmanager';
@@ -29,6 +30,8 @@ export interface ServiciosStackProps extends StackProps {
   vpc: IVpc;
   namespace: IPrivateDnsNamespace;
   clave: IKey;
+  /** Bucket de archivos (DatosStack). Solo se usa su nombre y ARN: los permisos van en el rol de la tarea de identidad. */
+  bucket: { bucketName: string; bucketArn: string };
   /** Host (endpoint) de RDS, para dejarlo en los secretos de conexión. */
   hostBd: string;
   natsUrl: string;
@@ -74,6 +77,8 @@ interface OpcionesServicio {
   secretos?: Record<string, SecretoEcs>;
   /** Ruta HTTP de salud; `/salud` en los servicios. El sitio web no tiene `/salud`: usa `/login` (pública y barata). */
   rutaSalud?: string;
+  /** Permisos extra del rol de la tarea (mínimo privilegio, por servicio). */
+  permisos?: PolicyStatement[];
 }
 
 /**
@@ -180,6 +185,7 @@ export class ServiciosStack extends Stack {
     // --- Definición común de cada servicio (todos ofrecen su nombre por Service Connect) ---
     const crearServicio = (app: NombreApp, o: OpcionesServicio) => {
       const tarea = new FargateTaskDefinition(this, `Tarea-${app}`, { cpu: o.cpu, memoryLimitMiB: o.memoria });
+      for (const permiso of o.permisos ?? []) tarea.addToTaskRolePolicy(permiso);
       const contenedor = tarea.addContainer(app, {
         image: ContainerImage.fromEcrRepository(this.repositorios[app], etiqueta),
         environment: { NODE_ENV: 'production', PORT: String(o.puerto), ...o.entorno },
@@ -246,7 +252,23 @@ export class ServiciosStack extends Stack {
       memoria: 1024,
       sg: props.sgIdentidad,
       // El sitio y la API comparten origen (el balanceador): es el único que Better Auth debe aceptar con cookies.
-      entorno: { NATS_URL: props.natsUrl, BETTER_AUTH_URL: urlPublica, ORIGENES_CONFIABLES: urlPublica },
+      entorno: {
+        NATS_URL: props.natsUrl,
+        BETTER_AUTH_URL: urlPublica,
+        ORIGENES_CONFIABLES: urlPublica,
+        // Logos del consultorio. Sin S3_ENDPOINT ni llaves: en AWS el SDK usa el rol de la tarea.
+        S3_BUCKET: props.bucket.bucketName,
+        S3_REGION: this.region,
+      },
+      permisos: [
+        // Solo los logos: ni el resto del bucket ni ListBucket.
+        new PolicyStatement({
+          actions: ['s3:GetObject', 's3:PutObject', 's3:DeleteObject'],
+          resources: [`${props.bucket.bucketArn}/logos/*`],
+        }),
+        // El bucket se cifra con la llave KMS del stack de datos.
+        new PolicyStatement({ actions: ['kms:Decrypt', 'kms:GenerateDataKey'], resources: [props.clave.keyArn] }),
+      ],
       secretos: {
         DATABASE_URL: urlBd(identidadApp),
         MIGRATOR_DATABASE_URL: urlBd(identidadMigrator),

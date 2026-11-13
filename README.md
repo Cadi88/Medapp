@@ -28,6 +28,28 @@ cliente que llama directo a Next puede elegir su `X-Forwarded-For` (no hay proxy
 `BETTER_AUTH_URL` (por defecto `http://localhost:8080`) es el origen público de la API: Better Auth rechaza los POST con
 cookies cuya cabecera `Origin` no coincida, así que los clientes deben enviar ese origen.
 
+## Mi consultorio
+
+La administración del consultorio abre **Mi consultorio** (`/consultorio`) para personalizarlo: nombre comercial, dirección,
+teléfono (se guarda en formato E.164, p. ej. `+525512345678`), color del consultorio (con contraste suficiente contra el
+blanco; los botones principales y el encabezado lo usan) y logo. El logo acepta PNG, JPG o WebP de hasta 1 MB; el servicio
+lo reduce a PNG de máximo 512 px sin metadatos. Cada cambio queda en la bitácora (`consultorio.actualizado`). La recepción
+y los médicos ven el logo y el color, pero no pueden cambiarlos.
+
+El logo se guarda en un bucket S3 y solo se sirve a través de la aplicación (`/consultorio/logo`), nunca desde el almacenamiento.
+**En local** es MinIO (el bucket se crea solo al arrancar `svc-identidad`); su consola está en `http://localhost:9001`
+con `MINIO_ROOT_USER` y `MINIO_ROOT_PASSWORD` del `.env`. **En AWS** es el bucket `Archivos` de `Consultorio-Datos` (cifrado con KMS) y la
+tarea de identidad solo puede leer, escribir y borrar `logos/*` con su rol, sin llaves.
+
+Variables de `svc-identidad` (ya puestas en `docker-compose.yml` y en `infra/`):
+
+| Variable | Local (MinIO) | AWS |
+| --- | --- | --- |
+| `S3_BUCKET` | `consultorio-archivos` | bucket `Archivos` |
+| `S3_REGION` | `us-east-1` | `mx-central-1` |
+| `S3_ENDPOINT` | `http://minio:9000` | no se define (S3 real) |
+| `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY` | `MINIO_ROOT_USER` y `MINIO_ROOT_PASSWORD` | no se definen (rol de la tarea) |
+
 ## Producción
 
 - `svc-identidad` solo debe ser alcanzable a través del gateway: confía en `x-forwarded-for` (que fija el gateway) para el límite

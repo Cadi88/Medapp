@@ -281,6 +281,29 @@ describe('ServiciosStack', () => {
     );
     expect(conAgendaDb).toHaveLength(2);
   });
+  test('svc-identidad: S3_BUCKET/S3_REGION y rol con Get/Put/Delete solo sobre logos/* (sin endpoint ni llaves)', () => {
+    const env = contenedor(tareaDe('svc-identidad')).Environment as { Name: string; Value: unknown }[];
+    const valor = (n: string) => env.find((e) => e.Name === n)?.Value;
+    expect(JSON.stringify(valor('S3_BUCKET'))).toContain('Archivos'); // referencia al bucket Archivos de DatosStack
+    expect(valor('S3_REGION')).toBe('mx-central-1');
+    const nombresEnv = env.map((e) => e.Name);
+    for (const n of ['S3_ENDPOINT', 'S3_ACCESS_KEY_ID', 'S3_SECRET_ACCESS_KEY']) expect(nombresEnv).not.toContain(n);
+
+    const sentencias = Object.values(servicios.findResources('AWS::IAM::Policy')).flatMap((p) => {
+      const doc = (p.Properties as Json).PolicyDocument as { Statement: Json[] };
+      return doc.Statement;
+    });
+    const deS3 = sentencias.filter((st) => JSON.stringify(st.Action).includes('s3:'));
+    expect(deS3).toHaveLength(1);
+    const acciones = ([] as string[]).concat(deS3[0]!.Action as string | string[]).sort();
+    expect(acciones).toEqual(['s3:DeleteObject', 's3:GetObject', 's3:PutObject']);
+    const recurso = JSON.stringify(deS3[0]!.Resource);
+    expect(recurso).toContain('/logos/*');
+    expect(recurso).not.toContain('"*"');
+    // El bucket va cifrado con KMS: sin estos permisos sobre la llave, guardar el logo fallaría.
+    const deKms = sentencias.filter((st) => JSON.stringify(st.Action).includes('kms:GenerateDataKey'));
+    expect(deKms.length).toBeGreaterThan(0);
+  });
   test('web: puerto 3000, habla con el gateway por Service Connect y no lleva secretos', () => {
     const def = contenedor(tareaDe('web'));
     const env = def.Environment as { Name: string; Value: unknown }[];

@@ -42,6 +42,7 @@ export function crearApp(opciones: OpcionesApp = {}) {
     vpc: red.vpc,
     namespace: red.namespace,
     clave: datos.clave,
+    bucket: datos.bucket,
     hostBd: datos.baseDeDatos.dbInstanceEndpointAddress,
     natsUrl: mensajeria.natsUrl,
     sgBalanceador: red.sgBalanceador,

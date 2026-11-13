@@ -137,3 +137,62 @@ export async function crearConsultorio(slug: string): Promise<{ tenantId: string
   exigir(t, 200, 'sesion/tenant');
   return { tenantId: reg.cuerpo.tenantId, token: t.cuerpo.token };
 }
+
+export interface RespuestaBinaria {
+  status: number;
+  bytes: Buffer;
+  tipo: string | null;
+  cacheControl: string | null;
+}
+
+/** Petición con cuerpo crudo (p. ej. `PUT .../logo` con `image/png`) o respuesta no JSON (p. ej. `GET .../logo`). */
+export async function peticionBinaria(
+  metodo: Metodo | 'DELETE',
+  ruta: string,
+  o: { token: string; archivo?: { bytes: Uint8Array; tipo: string } },
+): Promise<RespuestaBinaria> {
+  const res = await fetch(`${BASE_URL}${ruta}`, {
+    method: metodo,
+    headers: {
+      origin: ORIGEN,
+      authorization: `Bearer ${o.token}`,
+      ...(o.archivo ? { 'content-type': o.archivo.tipo } : {}),
+    },
+    ...(o.archivo ? { body: o.archivo.bytes } : {}),
+  });
+  return {
+    status: res.status,
+    bytes: Buffer.from(await res.arrayBuffer()),
+    tipo: res.headers.get('content-type'),
+    cacheControl: res.headers.get('cache-control'),
+  };
+}
+
+/**
+ * Da de alta a una persona de recepción (contraseña temporal), le hace cambiar esa contraseña (sin lo cual el
+ * servicio le niega el token de tenant) y devuelve su token.
+ */
+export async function tokenDeRecepcion(adminToken: string, tenantId: string, slug: string): Promise<string> {
+  const email = `recepcion@${slug}.mx`;
+  const temporal = 'temporal-e2e-12345';
+  const alta = await peticion('POST', '/api/identidad/miembros', {
+    token: adminToken,
+    cuerpo: { nombre: 'Rita Recepción', email, rol: 'recepcion', admin: false, passwordTemporal: temporal },
+  });
+  exigir(alta, 201, 'alta de recepción');
+
+  const inicial = await post('/api/identidad/auth/sign-in/email', { email, password: temporal });
+  exigir(inicial, 200, 'sign-in con contraseña temporal');
+  const cambio = await post(
+    '/api/identidad/auth/change-password',
+    { currentPassword: temporal, newPassword: PASSWORD, revokeOtherSessions: true },
+    mezclarCookies('', inicial.cookies),
+  );
+  exigir(cambio, 200, 'change-password');
+
+  const login = await post('/api/identidad/auth/sign-in/email', { email, password: PASSWORD });
+  exigir(login, 200, 'sign-in de recepción');
+  const t = await post<{ token: string }>('/api/identidad/sesion/tenant', { tenantId }, mezclarCookies('', login.cookies));
+  exigir(t, 200, 'sesion/tenant de recepción');
+  return t.cuerpo.token;
+}
