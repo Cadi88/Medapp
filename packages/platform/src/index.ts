@@ -19,3 +19,6 @@ export { isPublicPath, sanitizeTraceId } from './http/public-routes.js';
 export { createLogger, initTelemetry, shutdownTelemetry } from './observability.js';
 export { createHttpApp } from './http/app.js';
 export type { HttpAppOptions } from './http/app.js';
+export { configAlmacenDesdeEnv } from './almacen/almacen.js';
+export type { Almacen, ConfigAlmacen } from './almacen/almacen.js';
+export { crearAlmacenS3, asegurarBucket } from './almacen/s3.js';
