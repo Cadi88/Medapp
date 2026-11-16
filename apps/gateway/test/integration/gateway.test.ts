@@ -155,7 +155,7 @@ describe('autenticación en el gateway', () => {
 });
 
 describe('rutas internas entre servicios', () => {
-  test.each(['/api/agenda/interno/citas-para-recordatorio', '/api/identidad/interno/x', '/api/agenda/interno', '/api/notificaciones/interno/x'])(
+  test.each(['/api/agenda/interno/citas-para-recordatorio', '/api/identidad/interno/x', '/api/agenda/interno', '/api/notificaciones/interno/x', '/api/agenda/%69nterno/x', '/api/identidad/int%65rno/x', '/api/agenda/%49NTERNO/x'])(
     '%s → 404 sin token, con token y con otros métodos; nunca llega al destino',
     async (url) => {
       const antes = recibidos;

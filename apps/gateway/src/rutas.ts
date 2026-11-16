@@ -48,7 +48,14 @@ const rutaSinQuery = (url: string): string => {
  * exponen. Vale para cualquier nombre de servicio, también los que aún no existen en el gateway.
  */
 export function esRutaInterna(url: string): boolean {
-  return /^\/api\/[^/]+\/interno(\/|$)/i.test(rutaSinQuery(url));
+  // Se compara el segmento decodificado: el destino decodifica `%69nterno` y enruta a `/interno`.
+  const segmentos = rutaSinQuery(url).split('/');
+  if (segmentos[1]?.toLowerCase() !== 'api' || segmentos.length < 4) return false;
+  try {
+    return decodeURIComponent(segmentos[3] ?? '').toLowerCase() === 'interno';
+  } catch {
+    return false; // secuencia inválida: `rutaPermitida` la rechaza
+  }
 }
 
 /**
@@ -135,7 +142,13 @@ export function filtrarCabecerasRespuesta(destino: Cabeceras): Record<string, st
  */
 export function rutaPermitida(url: string): boolean {
   const path = rutaSinQuery(url);
-  if (/%(2e|2f|5c)/i.test(path) || path.includes('\\') || path.includes('//')) return false;
+  // Ningún carácter no reservado puede ir codificado (%69 = i): el destino lo decodificaría a otra ruta que la clasificada.
+  if (/%(?:[46][1-9a-f]|[57][0-9a]|3[0-9]|2d|2e|2f|5c|5f|7e)/i.test(path) || path.includes('\\') || path.includes('//')) return false;
+  try {
+    decodeURIComponent(path);
+  } catch {
+    return false;
+  }
   return !path.split('/').some((s) => s === '.' || s === '..');
 }
 

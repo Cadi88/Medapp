@@ -33,6 +33,9 @@ describe('clasificarRuta', () => {
     ['GET', '/api/agenda/interno'],
     ['GET', '/api/notificaciones/interno/lo-que-sea'],
     ['DELETE', '/api/auditoria/interno/'],
+    ['GET', '/api/agenda/%69nterno/x'],
+    ['GET', '/api/identidad/int%65rno/x'],
+    ['GET', '/api/agenda/%49NTERNO/x'],
   ])('gateway bloquea %s %s', (metodo, url) => {
     expect(clasificarRuta(metodo, url)).toEqual({ acceso: 'bloqueada' });
     expect(esRutaInterna(url)).toBe(true);
@@ -179,6 +182,10 @@ describe('rutaPermitida', () => {
     '/api/identidad/a%5Cb',
     '/api/identidad/a%5cb',
     '/api/identidad//a',
+    '/api/agenda/%69nterno/x',
+    '/api/agenda/%41bc',
+    '/api/agenda/a%2Db',
+    '/api/agenda/%zz',
     '/api/identidad/a//b?x=1',
   ])('rechaza %s', (u) => {
     expect(rutaPermitida(u)).toBe(false);

@@ -57,9 +57,9 @@ export async function buildGateway(o: GatewayOptions): Promise<FastifyInstance> 
       rewriteUrl: (req) => {
         const url = req.url ?? '';
         if (!url.startsWith('/api/')) return url;
-        if (!rutaPermitida(url)) return RUTA_INVALIDA;
-        // Las rutas /interno son solo entre servicios: 404 sin token, con token y con cualquier método.
-        return esRutaInterna(url) ? RUTA_INTERNA_BLOQUEADA : url;
+        // Las rutas /interno son solo entre servicios: 404 sin token, con token y con cualquier método (también codificadas).
+        if (esRutaInterna(url)) return RUTA_INTERNA_BLOQUEADA;
+        return rutaPermitida(url) ? url : RUTA_INVALIDA;
       },
     },
   });
