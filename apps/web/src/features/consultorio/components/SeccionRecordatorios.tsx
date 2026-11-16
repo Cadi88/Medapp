@@ -1,6 +1,13 @@
 'use client';
 
-import type { ConfigRecordatoriosDto } from '@consultorio/contracts';
+import {
+  CAMPOS_PLANTILLA,
+  errorDePlantilla,
+  rellenarPlantilla,
+  type ConfigRecordatoriosDto,
+  type DatosPlantilla,
+  type Plantillas,
+} from '@consultorio/contracts';
 import { useActionState, useState, type ChangeEvent } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -9,16 +16,7 @@ import { CampoSelect } from '@/features/agenda/components/CampoSelect';
 import { AvisoDeError, MensajeDeCampo } from '@/features/sesion/components/campo';
 import type { EstadoFormulario } from '@/features/sesion/tipos';
 import { guardarConfigRecordatorios } from '../actions';
-import {
-  CAMPOS_PLANTILLA,
-  DATOS_DE_EJEMPLO,
-  errorDePlantilla,
-  ETIQUETA_MODO,
-  MODOS,
-  rellenar,
-  type DatosPlantilla,
-  type Plantillas,
-} from '../logica/plantillas';
+import { DATOS_DE_EJEMPLO, ETIQUETA_MODO, MODOS } from '../logica/plantillas';
 
 interface Props {
   config: ConfigRecordatoriosDto;
@@ -118,7 +116,7 @@ export function SeccionRecordatorios({ config, consultorio, telefono }: Props) {
           valor={plantillas.correoAsunto}
           onCambio={cambiar('correoAsunto')}
           error={errorLocal('correoAsunto') ?? estado.errores?.correoAsunto}
-          vista={rellenar(plantillas.correoAsunto, datos)}
+          vista={rellenarPlantilla(plantillas.correoAsunto, datos)}
         />
         <CampoPlantilla
           nombre="correoCuerpo"
@@ -126,7 +124,7 @@ export function SeccionRecordatorios({ config, consultorio, telefono }: Props) {
           valor={plantillas.correoCuerpo}
           onCambio={cambiar('correoCuerpo')}
           error={errorLocal('correoCuerpo') ?? estado.errores?.correoCuerpo}
-          vista={rellenar(plantillas.correoCuerpo, datos)}
+          vista={rellenarPlantilla(plantillas.correoCuerpo, datos)}
           filas={6}
         />
         <CampoPlantilla
@@ -135,7 +133,7 @@ export function SeccionRecordatorios({ config, consultorio, telefono }: Props) {
           valor={plantillas.whatsapp}
           onCambio={cambiar('whatsapp')}
           error={errorLocal('whatsapp') ?? estado.errores?.whatsapp}
-          vista={rellenar(plantillas.whatsapp, datos)}
+          vista={rellenarPlantilla(plantillas.whatsapp, datos)}
         />
         {estado.ok ? (
           <p role="status" className="text-sm text-muted-foreground">

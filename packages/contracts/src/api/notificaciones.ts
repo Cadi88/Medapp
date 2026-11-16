@@ -124,3 +124,21 @@ export type ResultadoRespuesta = z.infer<typeof resultadoRespuestaSchema>;
 
 /** Parámetro de ruta de `/respuestas/:token`: el servicio decide si tiene la forma de un token; basura = enlace inválido, nunca un 400. */
 export const tokenParamsSchema = z.object({ token: z.string() });
+
+// --- Respuestas de las acciones de la pantalla de recordatorios ---
+
+/** `POST /recordatorios/:citaId/aprobar` y `/reintentar`: el estado en que quedó el correo (`enviado` si salió en ese momento). */
+export const estadoCorreoRespuestaSchema = z.object({ citaId: z.uuid(), estado: estadoEnvioSchema });
+/** `POST /recordatorios/aprobar`. */
+export const aprobarRangoRespuestaSchema = z.object({ aprobados: z.number().int().min(0), enviados: z.number().int().min(0) });
+/** `POST /recordatorios/:citaId/whatsapp`. */
+export const enlaceWhatsAppSchema = z.object({ enlace: z.string() });
+/** `POST /recordatorios/:citaId/respuesta`. */
+export const respuestaRegistradaSchema = z.object({ citaId: z.uuid(), respuesta: respuestaPacienteSchema });
+export type EstadoCorreoRespuesta = z.infer<typeof estadoCorreoRespuestaSchema>;
+export type AprobarRangoRespuesta = z.infer<typeof aprobarRangoRespuestaSchema>;
+export type EnlaceWhatsApp = z.infer<typeof enlaceWhatsAppSchema>;
+export type RespuestaRegistrada = z.infer<typeof respuestaRegistradaSchema>;
+export type RegistrarRespuestaRecepcion = z.infer<typeof registrarRespuestaRecepcionSchema>;
+export type RegistrarRespuestaPaciente = z.infer<typeof registrarRespuestaPacienteSchema>;
+export type AbrirWhatsApp = z.infer<typeof abrirWhatsAppSchema>;

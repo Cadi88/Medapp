@@ -2,7 +2,7 @@
 import { beforeEach, describe, expect, test, vi } from 'vitest';
 import { exito, fallo } from '@/lib/api/resultado';
 
-const m = vi.hoisted(() => ({ llamarGateway: vi.fn(), leerToken: vi.fn() }));
+const m = vi.hoisted(() => ({ llamarGateway: vi.fn() }));
 vi.mock('next/headers', () => ({ headers: async () => new Headers({ 'x-forwarded-for': '9.9.9.9' }) }));
 vi.mock('@/lib/api/gateway', () => ({ llamarGateway: m.llamarGateway, ipDelCliente: (h: Headers) => h.get('x-forwarded-for') ?? undefined }));
 
@@ -98,5 +98,21 @@ describe('GET /r/[token]/logo', () => {
   test('un token con caracteres raros ni se consulta', async () => {
     expect((await llamar('../x')).status).toBe(404);
     expect(m.llamarGateway).not.toHaveBeenCalled();
+  });
+});
+
+describe('tipos del logo público', () => {
+  const llamar = () => GET(new Request('http://web/r/x/logo'), { params: Promise.resolve({ token: TOKEN }) });
+
+  test.each(['image/png', 'image/jpeg', 'image/webp'])('%s se reenvía', async (tipo) => {
+    m.llamarGateway.mockResolvedValue(exito({ bytes: new Uint8Array([1]), tipo, cabeceras: new Headers() }));
+    expect((await llamar()).headers.get('content-type')).toBe(tipo);
+  });
+
+  test.each(['image/svg+xml', 'image/gif', 'text/html', 'image/png; charset=x'])('%s no se reenvía tal cual', async (tipo) => {
+    m.llamarGateway.mockResolvedValue(exito({ bytes: new Uint8Array([1]), tipo, cabeceras: new Headers() }));
+    const res = await llamar();
+    expect(res.headers.get('content-type')).toBe('application/octet-stream');
+    expect(res.headers.get('x-content-type-options')).toBe('nosniff');
   });
 });

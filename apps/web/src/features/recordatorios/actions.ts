@@ -3,7 +3,9 @@
 import { abrirWhatsAppSchema, aprobarRangoSchema, citaIdParamsSchema, registrarRespuestaRecepcionSchema } from '@consultorio/contracts';
 import { revalidatePath } from 'next/cache';
 import { estadoDeFallo, type Fallo } from '@/features/comun/errores';
+import type { Resultado } from '@/lib/api/resultado';
 import { abrirWhatsAppEnApi, aprobarEnApi, aprobarRangoEnApi, reintentarEnApi, registrarRespuestaEnApi } from './api';
+import { TEXTO_NO_SE_PUDO_ENVIAR } from './logica/presentacion';
 import type { ResultadoRecordatorio, ResultadoWhatsApp } from './tipos';
 
 const DATOS_INVALIDOS = 'Revisa los datos del formulario';
@@ -22,14 +24,24 @@ function mensajeDeFallo(r: Fallo): string {
 /** Tras cualquier intento (también si falló) la pantalla se vuelve a leer: el estado pudo cambiar. */
 const refrescar = () => revalidatePath('/recordatorios');
 
-async function terminar(r: Awaited<ReturnType<typeof aprobarEnApi>>): Promise<ResultadoRecordatorio> {
+async function terminar(r: Resultado<unknown>): Promise<ResultadoRecordatorio> {
   refrescar();
   return r.ok ? { ok: true } : { mensaje: mensajeDeFallo(r) };
 }
 
-export async function aprobarRecordatorio(citaId: string): Promise<ResultadoRecordatorio> {
+/**
+ * Aprueba (o, con el correo ya aprobado, "Enviar ahora"). `esperaEnvio`: ya pasó la hora de envío de esa cita, así que
+ * el correo debe salir en el acto; si el servicio responde que sigue `aprobado`, no salió y se avisa.
+ */
+export async function aprobarRecordatorio(citaId: string, esperaEnvio = false): Promise<ResultadoRecordatorio> {
   const id = citaIdParamsSchema.safeParse({ citaId });
-  return id.success ? terminar(await aprobarEnApi(id.data.citaId)) : invalido;
+  if (!id.success) return invalido;
+  const r = await aprobarEnApi(id.data.citaId);
+  if (r.ok && esperaEnvio && r.datos.estado === 'aprobado') {
+    refrescar();
+    return { mensaje: TEXTO_NO_SE_PUDO_ENVIAR };
+  }
+  return terminar(r);
 }
 
 /** Aprueba (y envía lo que ya toca) todos los pendientes del rango que la pantalla está mostrando. */

@@ -2,7 +2,7 @@ import '@testing-library/jest-dom/vitest';
 import type { ConfigRecordatoriosDto } from '@consultorio/contracts';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, test, vi } from 'vitest';
-import { DATOS_DE_EJEMPLO, rellenar, validarPlantillas, LIMITES_PLANTILLA } from '@/features/consultorio/logica/plantillas';
+import { DATOS_DE_EJEMPLO } from '@/features/consultorio/logica/plantillas';
 
 const m = vi.hoisted(() => ({ guardarConfigRecordatorios: vi.fn() }));
 vi.mock('@/features/consultorio/actions', () => ({ guardarConfigRecordatorios: m.guardarConfigRecordatorios }));
@@ -20,38 +20,6 @@ const config: ConfigRecordatoriosDto = {
 };
 
 afterEach(cleanup);
-
-describe('rellenar', () => {
-  const datos = { ...DATOS_DE_EJEMPLO, paciente: 'Ana', consultorio: 'Dental Sol' };
-
-  test('sustituye los campos conocidos y deja los desconocidos', () => {
-    expect(rellenar('Hola {paciente} en {consultorio} {otro}', datos)).toBe('Hola Ana en Dental Sol {otro}');
-  });
-
-  test('una sola pasada: un valor con llaves no se vuelve a sustituir', () => {
-    expect(rellenar('{paciente} {medico}', { ...datos, paciente: '{medico}', medico: 'Dra. Ruiz' })).toBe('{medico} Dra. Ruiz');
-  });
-
-  test('un campo heredado del prototipo no cuenta', () => {
-    expect(rellenar('{constructor}', datos)).toBe('{constructor}');
-  });
-});
-
-describe('validarPlantillas', () => {
-  const ok = { correoAsunto: 'a', correoCuerpo: 'b', whatsapp: 'c' };
-
-  test('válidas', () => {
-    expect(validarPlantillas(ok)).toEqual({ ok: true });
-    expect(validarPlantillas({ correoAsunto: 'x'.repeat(120), correoCuerpo: 'x'.repeat(1000), whatsapp: 'x'.repeat(700) })).toEqual({ ok: true });
-  });
-
-  test('vacía o demasiado larga, con el campo y el texto', () => {
-    expect(validarPlantillas({ ...ok, correoAsunto: '   ' })).toEqual({ ok: false, campo: 'correoAsunto', error: 'La plantilla no puede estar vacía' });
-    expect(validarPlantillas({ ...ok, correoCuerpo: 'x'.repeat(1001) })).toEqual({ ok: false, campo: 'correoCuerpo', error: 'Máximo 1000 caracteres' });
-    expect(validarPlantillas({ ...ok, whatsapp: 'x'.repeat(701) })).toEqual({ ok: false, campo: 'whatsapp', error: 'Máximo 700 caracteres' });
-    expect(LIMITES_PLANTILLA).toEqual({ correoAsunto: 120, correoCuerpo: 1000, whatsapp: 700 });
-  });
-});
 
 describe('SeccionRecordatorios', () => {
   const mostrar = (c = config) => render(<SeccionRecordatorios config={c} consultorio="Dental Sol" telefono="+525512345678" />);

@@ -1,12 +1,13 @@
 'use client';
 
 import type { RecordatorioCita, RespuestaPacienteValor } from '@consultorio/contracts';
+import { useState } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { ETIQUETA_PIDE_CAMBIO } from '@/features/agenda/logica/estados';
 import { formatearHora } from '@/features/agenda/logica/formato';
 import { abrirWhatsApp, aprobarRecordatorio, registrarRespuestaRecepcion, reintentarEnvio } from '../actions';
-import { ETIQUETA_RESPUESTA, textoCorreo, textoRespuesta, textoWhatsApp } from '../logica/presentacion';
+import { ETIQUETA_RESPUESTA, pasoLaHoraDeEnvio, textoCorreo, textoRespuesta, textoWhatsApp } from '../logica/presentacion';
 import type { ResultadoRecordatorio, ResultadoWhatsApp } from '../tipos';
 
 export type Ejecutar = (accion: () => Promise<ResultadoRecordatorio | ResultadoWhatsApp>) => Promise<void>;
@@ -14,6 +15,8 @@ export type Ejecutar = (accion: () => Promise<ResultadoRecordatorio | ResultadoW
 interface Props {
   cita: RecordatorioCita;
   zona: string;
+  /** Hora de envío del consultorio (`HH:MM`): de ella depende si aprobar debe dejar el correo enviado. */
+  horaEnvio: string;
   /** Corre la acción, avisa si falló y evita que se lance otra mientras tanto. */
   ejecutar: Ejecutar;
   ocupado: boolean;
@@ -22,17 +25,36 @@ interface Props {
 const RESPUESTAS: RespuestaPacienteValor[] = ['confirma', 'cancela', 'pide_cambio'];
 
 /** Una cita: hora, paciente, estado del correo y del WhatsApp, vistas previas y las acciones que le tocan. */
-export function FilaRecordatorio({ cita, zona, ejecutar, ocupado }: Props) {
+export function FilaRecordatorio({ cita, zona, horaEnvio, ejecutar, ocupado }: Props) {
   const { correo, whatsapp, respuesta } = cita;
   const estadoWhatsApp = textoWhatsApp(whatsapp);
+  /** Enlace para tocar cuando el navegador no dejó abrir la pestaña (p. ej. Safari). */
+  const [enlaceManual, setEnlaceManual] = useState<string>();
 
-  /** Registra primero y abre la pestaña después: si el registro falla no se abre nada. */
-  const abrirEnWhatsApp = () =>
-    ejecutar(async () => {
-      const r = await abrirWhatsApp(cita.citaId, cita.fecha);
-      if ('enlace' in r) window.open(r.enlace, '_blank', 'noopener');
-      return r;
+  /** Aprobar y "Enviar ahora" son la misma acción; el servicio es idempotente. */
+  const aprobar = () => ejecutar(() => aprobarRecordatorio(cita.citaId, pasoLaHoraDeEnvio(cita.fecha, horaEnvio, zona, new Date())));
+
+  /**
+   * La pestaña se abre en el clic, antes de esperar al servidor (Safari bloquea las que se abren después de un
+   * `await`); se registra y solo entonces se manda a wa.me. Si el registro falla, la pestaña vacía se cierra.
+   */
+  const abrirEnWhatsApp = () => {
+    const pestana = window.open('about:blank', '_blank');
+    return ejecutar(async () => {
+      try {
+        const r = await abrirWhatsApp(cita.citaId, cita.fecha);
+        if (!('enlace' in r)) pestana?.close();
+        else if (pestana) {
+          pestana.opener = null;
+          pestana.location.href = r.enlace;
+        } else setEnlaceManual(r.enlace);
+        return r;
+      } catch (error) {
+        pestana?.close();
+        throw error;
+      }
     });
+  };
 
   return (
     <li aria-label={cita.paciente} className="grid gap-3 rounded-md border p-3">
@@ -69,8 +91,13 @@ export function FilaRecordatorio({ cita, zona, ejecutar, ocupado }: Props) {
 
       <div className="flex flex-wrap gap-2">
         {correo.estado === 'pendiente' ? (
-          <Button type="button" size="sm" disabled={ocupado} onClick={() => void ejecutar(() => aprobarRecordatorio(cita.citaId))}>
+          <Button type="button" size="sm" disabled={ocupado} onClick={() => void aprobar()}>
             Aprobar
+          </Button>
+        ) : null}
+        {correo.estado === 'aprobado' ? (
+          <Button type="button" size="sm" variant="outline" disabled={ocupado} onClick={() => void aprobar()}>
+            Enviar ahora
           </Button>
         ) : null}
         {correo.estado === 'fallido' ? (
@@ -78,7 +105,11 @@ export function FilaRecordatorio({ cita, zona, ejecutar, ocupado }: Props) {
             Reintentar
           </Button>
         ) : null}
-        {whatsapp.enlace ? (
+        {enlaceManual ? (
+          <a href={enlaceManual} target="_blank" rel="noopener noreferrer" className="inline-flex h-8 items-center rounded-md border px-3 text-sm font-medium hover:bg-accent">
+            Abrir WhatsApp
+          </a>
+        ) : whatsapp.enlace ? (
           <Button type="button" size="sm" variant="outline" disabled={ocupado} onClick={() => void abrirEnWhatsApp()}>
             Abrir WhatsApp
           </Button>

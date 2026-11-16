@@ -77,5 +77,14 @@ export function agruparPorFechaYMedico(citas: RecordatorioCita[]): GrupoFecha[] 
     }));
 }
 
+/**
+ * El recordatorio de una cita sale el día anterior (zona del consultorio) a la hora de envío: ¿ya pasó ese momento?
+ * Si pasó, aprobar debe dejarlo enviado en el acto.
+ */
+export function pasoLaHoraDeEnvio(fechaCita: string, horaEnvio: string, zona: string, ahora: Date): boolean {
+  const salida = DateTime.fromISO(`${sumarDias(fechaCita, -1)}T${horaEnvio}`, { zone: zona });
+  return salida.isValid && DateTime.fromJSDate(ahora) >= salida;
+}
+
 /** Hay correos por aprobar: "Aprobar todos" tiene algo que hacer. */
 export const hayPendientes = (citas: RecordatorioCita[]): boolean => citas.some((c) => c.correo.estado === 'pendiente');

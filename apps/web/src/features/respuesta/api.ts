@@ -1,5 +1,5 @@
 import 'server-only';
-import { respuestaPublicaSchema, resultadoRespuestaSchema } from '@consultorio/contracts';
+import { respuestaPublicaSchema, resultadoRespuestaSchema, type RegistrarRespuestaPaciente } from '@consultorio/contracts';
 import { headers } from 'next/headers';
 import { ipDelCliente, llamarGateway, type RespuestaBinaria } from '@/lib/api/gateway';
 import type { Resultado } from '@/lib/api/resultado';
@@ -14,8 +14,8 @@ async function ipActual(): Promise<string | undefined> {
 export const obtenerEnlacePublico = async (token: string) =>
   llamarGateway(ruta(token), { auth: 'ninguna', esquema: respuestaPublicaSchema, ip: await ipActual() });
 
-export const registrarRespuestaEnApi = async (token: string, respuesta: string) =>
-  llamarGateway(ruta(token), { metodo: 'POST', cuerpo: { respuesta }, auth: 'ninguna', esquema: resultadoRespuestaSchema, ip: await ipActual() });
+export const registrarRespuestaEnApi = async (token: string, cuerpo: RegistrarRespuestaPaciente) =>
+  llamarGateway(ruta(token), { metodo: 'POST', cuerpo, auth: 'ninguna', esquema: resultadoRespuestaSchema, ip: await ipActual() });
 
 export async function obtenerLogoPublico(token: string): Promise<Resultado<RespuestaBinaria>> {
   return llamarGateway<RespuestaBinaria>(`${ruta(token)}/logo`, { auth: 'ninguna', respuestaBinaria: true, ip: await ipActual() });

@@ -5,8 +5,12 @@ import {
   citaIdParamsSchema,
   rangoRecordatoriosSchema,
   registrarRespuestaRecepcionSchema,
+  type AprobarRangoRespuesta,
   type CitaParaRecordatorio,
+  type EnlaceWhatsApp,
+  type EstadoCorreoRespuesta,
   type RecordatoriosRespuesta,
+  type RespuestaRegistrada,
 } from '@consultorio/contracts';
 import { AppError, enqueueEvent, withTenant } from '@consultorio/platform';
 import type { FastifyPluginAsync } from 'fastify';
@@ -101,7 +105,7 @@ export const recordatoriosRutas: FastifyPluginAsync<{ ctx: ContextoEnvio }> = as
     };
   });
 
-  app.post('/recordatorios/aprobar', { preHandler: exigirPersonal }, async (req) => {
+  app.post('/recordatorios/aprobar', { preHandler: exigirPersonal }, async (req): Promise<AprobarRangoRespuesta> => {
     const { desde, hasta } = aprobarRangoSchema.parse(req.body);
     exigirRango(desde, hasta);
     const { tenantId, usuarioId } = req.ctx;
@@ -114,7 +118,7 @@ export const recordatoriosRutas: FastifyPluginAsync<{ ctx: ContextoEnvio }> = as
     return { aprobados: aprobados.length, enviados };
   });
 
-  app.post('/recordatorios/:citaId/aprobar', { preHandler: exigirPersonal }, async (req) => {
+  app.post('/recordatorios/:citaId/aprobar', { preHandler: exigirPersonal }, async (req): Promise<EstadoCorreoRespuesta> => {
     const { citaId } = citaIdParamsSchema.parse(req.params);
     const { tenantId, usuarioId } = req.ctx;
     const envio = await withTenant(pool, tenantId, (tx) => envioCorreoVigenteDeCita(tx, tenantId, citaId));
@@ -126,7 +130,7 @@ export const recordatoriosRutas: FastifyPluginAsync<{ ctx: ContextoEnvio }> = as
     return { citaId, estado: estadoTrasEnvio(await enviarSiCorresponde(ctx, tenantId, usuarioId, envio)) };
   });
 
-  app.post('/recordatorios/:citaId/reintentar', { preHandler: exigirPersonal }, async (req) => {
+  app.post('/recordatorios/:citaId/reintentar', { preHandler: exigirPersonal }, async (req): Promise<EstadoCorreoRespuesta> => {
     const { citaId } = citaIdParamsSchema.parse(req.params);
     const { tenantId, usuarioId } = req.ctx;
     const envio = await withTenant(pool, tenantId, (tx) => envioCorreoVigenteDeCita(tx, tenantId, citaId));
@@ -139,7 +143,7 @@ export const recordatoriosRutas: FastifyPluginAsync<{ ctx: ContextoEnvio }> = as
     return { citaId, estado: estadoTrasEnvio(await intentarEnvio(ctx, tenantId, usuarioId, envio.id)) };
   });
 
-  app.post('/recordatorios/:citaId/whatsapp', { preHandler: exigirPersonal }, async (req) => {
+  app.post('/recordatorios/:citaId/whatsapp', { preHandler: exigirPersonal }, async (req): Promise<EnlaceWhatsApp> => {
     const { citaId } = citaIdParamsSchema.parse(req.params);
     const { fecha } = abrirWhatsAppSchema.parse(req.body);
     const { tenantId, usuarioId } = req.ctx;
@@ -154,7 +158,7 @@ export const recordatoriosRutas: FastifyPluginAsync<{ ctx: ContextoEnvio }> = as
     return { enlace };
   });
 
-  app.post('/recordatorios/:citaId/respuesta', { preHandler: exigirPersonal }, async (req) => {
+  app.post('/recordatorios/:citaId/respuesta', { preHandler: exigirPersonal }, async (req): Promise<RespuestaRegistrada> => {
     const { citaId } = citaIdParamsSchema.parse(req.params);
     const { fecha, respuesta } = registrarRespuestaRecepcionSchema.parse(req.body);
     const { tenantId, usuarioId, traceId } = req.ctx;

@@ -61,3 +61,15 @@ describe('api de notificaciones', () => {
     expect(() => respuestaPublicaSchema.parse({ estado: 'desconocida' })).toThrow();
   });
 });
+
+describe('respuestas de las acciones de recordatorios', () => {
+  const id = '0190a0a0-0000-7000-8000-0000000000a1';
+  test('forma de cada respuesta', async () => {
+    const c = await import('../../src/api/notificaciones.js');
+    expect(c.estadoCorreoRespuestaSchema.parse({ citaId: id, estado: 'enviado' })).toEqual({ citaId: id, estado: 'enviado' });
+    expect(c.estadoCorreoRespuestaSchema.safeParse({ citaId: id, estado: 'raro' }).success).toBe(false);
+    expect(c.aprobarRangoRespuestaSchema.parse({ aprobados: 2, enviados: 1 })).toEqual({ aprobados: 2, enviados: 1 });
+    expect(c.enlaceWhatsAppSchema.parse({ enlace: 'https://wa.me/1' })).toEqual({ enlace: 'https://wa.me/1' });
+    expect(c.respuestaRegistradaSchema.parse({ citaId: id, respuesta: 'cancela' })).toEqual({ citaId: id, respuesta: 'cancela' });
+  });
+});

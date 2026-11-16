@@ -9,3 +9,4 @@ export * from './api/agenda.js';
 export * from './api/notificaciones.js';
 export * from './paises/index.js';
 export * from './marca/color.js';
+export * from './recordatorios/plantillas.js';

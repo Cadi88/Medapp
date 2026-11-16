@@ -1,5 +1,6 @@
 'use server';
 
+import { errorDePlantilla, type Plantillas } from '@consultorio/contracts';
 import { revalidatePath } from 'next/cache';
 import { estadoDeFallo, type Fallo } from '@/features/comun/errores';
 import { actualizarConfigEnApi } from '@/features/recordatorios/api';
@@ -15,7 +16,7 @@ import {
   MENSAJE_LOGO_TIPO,
   telefonoParaComparar,
 } from './logica/formulario';
-import { errorDePlantilla, esHoraValida, esModoValido, MENSAJE_HORA, MENSAJE_MODO, type Plantillas } from './logica/plantillas';
+import { esHoraValida, esModoValido, MENSAJE_HORA, MENSAJE_MODO } from './logica/plantillas';
 
 const CAMPOS = ['nombreComercial', 'direccion', 'telefono', 'colorPrimario'] as const;
 const MENSAJE_LOGO_NO_GUARDADO = 'No se pudo guardar el logo ahora. Intenta de nuevo más tarde.';
@@ -92,16 +93,17 @@ export async function guardarConfigRecordatorios(_prev: EstadoFormulario, fd: Fo
   const t = textosDe(fd);
   const valores = Object.fromEntries(CAMPOS_RECORDATORIOS.map((c) => [c, t[c] ?? ''])) as Record<(typeof CAMPOS_RECORDATORIOS)[number], string>;
   const errores: Record<string, string> = {};
-  if (!esModoValido(valores.modo)) errores.modo = MENSAJE_MODO;
+  const modo = esModoValido(valores.modo) ? valores.modo : undefined;
+  if (!modo) errores.modo = MENSAJE_MODO;
   if (!esHoraValida(valores.horaEnvio)) errores.horaEnvio = MENSAJE_HORA;
   for (const campo of CAMPOS_PLANTILLA) {
     const error = errorDePlantilla(campo, valores[campo]);
     if (error) errores[campo] = error;
   }
-  if (Object.keys(errores).length > 0) return { errores, valores };
+  if (Object.keys(errores).length > 0 || !modo) return { errores, valores };
 
   const r = await actualizarConfigEnApi({
-    modo: valores.modo,
+    modo,
     horaEnvio: valores.horaEnvio,
     plantillas: { correoAsunto: valores.correoAsunto, correoCuerpo: valores.correoCuerpo, whatsapp: valores.whatsapp },
   });

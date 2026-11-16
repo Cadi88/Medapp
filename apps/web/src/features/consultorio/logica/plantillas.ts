@@ -1,27 +1,6 @@
-/**
- * Plantillas de los recordatorios. Copia de la lógica de `svc-notificaciones` (`dominio/plantillas.ts`) para la vista
- * previa y la validación inmediata del formulario: la autoridad es el servidor, que vuelve a validar al guardar.
- */
-export interface DatosPlantilla {
-  paciente: string;
-  fecha: string;
-  hora: string;
-  medico: string;
-  consultorio: string;
-  telefono_consultorio: string;
-}
+import type { DatosPlantilla } from '@consultorio/contracts';
 
-export interface Plantillas {
-  correoAsunto: string;
-  correoCuerpo: string;
-  whatsapp: string;
-}
-
-export const LIMITES_PLANTILLA: Record<keyof Plantillas, number> = { correoAsunto: 120, correoCuerpo: 1000, whatsapp: 700 };
-
-/** Los campos que una plantilla puede usar, tal como se escriben. */
-export const CAMPOS_PLANTILLA: readonly (keyof DatosPlantilla)[] = ['paciente', 'fecha', 'hora', 'medico', 'consultorio', 'telefono_consultorio'];
-
+/** Datos de ejemplo para la vista previa de las plantillas; la plantilla, sus campos y límites viven en `@consultorio/contracts`. */
 export const DATOS_DE_EJEMPLO: DatosPlantilla = {
   paciente: 'María López',
   fecha: 'jueves 19 de noviembre',
@@ -30,33 +9,6 @@ export const DATOS_DE_EJEMPLO: DatosPlantilla = {
   consultorio: 'Mi consultorio',
   telefono_consultorio: '55 1234 5678',
 };
-
-/**
- * Sustituye `{campo}` por su valor en una sola pasada (un valor con llaves no se vuelve a sustituir). Los campos
- * desconocidos se dejan tal cual. Es texto plano: React escapa lo que se muestra.
- */
-export function rellenar(plantilla: string, datos: DatosPlantilla): string {
-  return plantilla.replace(/\{([a-z_]+)\}/g, (completo, campo: string) => {
-    if (!Object.hasOwn(datos, campo)) return completo;
-    const valor = datos[campo as keyof DatosPlantilla];
-    return typeof valor === 'string' ? valor : completo;
-  });
-}
-
-export type ResultadoValidacion = { ok: true } | { ok: false; campo: keyof Plantillas; error: string };
-
-export function errorDePlantilla(campo: keyof Plantillas, texto: string): string | undefined {
-  if (texto.trim().length === 0) return 'La plantilla no puede estar vacía';
-  return texto.length > LIMITES_PLANTILLA[campo] ? `Máximo ${LIMITES_PLANTILLA[campo]} caracteres` : undefined;
-}
-
-export function validarPlantillas(p: Plantillas): ResultadoValidacion {
-  for (const campo of Object.keys(LIMITES_PLANTILLA) as (keyof Plantillas)[]) {
-    const error = errorDePlantilla(campo, p[campo]);
-    if (error) return { ok: false, campo, error };
-  }
-  return { ok: true };
-}
 
 export const MODOS = ['con_revision', 'sin_revision'] as const;
 export type Modo = (typeof MODOS)[number];

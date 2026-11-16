@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom/vitest';
 import type { RecordatoriosRespuesta } from '@consultorio/contracts';
-import { cleanup, render, screen, waitFor, within } from '@testing-library/react';
+import { cleanup, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import { CITA_A, CITA_B, recordatorio } from './apoyo';
@@ -21,7 +21,8 @@ const datos = (citas: RecordatoriosRespuesta['citas'], modo: RecordatoriosRespue
   horaEnvio: '10:00',
   citas,
 });
-const mostrar = (d: RecordatoriosRespuesta) => render(<PanelRecordatorios datos={d} desde="2026-11-16" hasta="2026-11-18" zona="America/Mexico_City" />);
+const panel = (d: RecordatoriosRespuesta) => <PanelRecordatorios datos={d} desde="2026-11-16" hasta="2026-11-18" zona="America/Mexico_City" />;
+const mostrar = (d: RecordatoriosRespuesta) => render(panel(d));
 const fila = (nombre: string) => screen.getByRole('listitem', { name: nombre });
 
 beforeEach(() => {
@@ -106,7 +107,7 @@ describe('acciones', () => {
   test('Aprobar llama a la acción con la cita', async () => {
     mostrar(datos([recordatorio()]));
     await userEvent.click(within(fila('Ana Pérez')).getByRole('button', { name: 'Aprobar' }));
-    expect(m.aprobarRecordatorio).toHaveBeenCalledWith(CITA_A);
+    expect(m.aprobarRecordatorio).toHaveBeenCalledWith(CITA_A, expect.any(Boolean));
   });
 
   test('Aprobar todos manda el rango mostrado y solo aparece con pendientes', async () => {
@@ -141,31 +142,4 @@ describe('acciones', () => {
     ]);
   });
 
-  test('Abrir WhatsApp registra antes de abrir la pestaña y luego muestra el estado que devuelve el servidor', async () => {
-    const orden: string[] = [];
-    m.abrirWhatsApp.mockImplementation(async () => {
-      orden.push('registro');
-      return { ok: true, enlace: 'https://wa.me/525512345678?text=Hola' };
-    });
-    const abrir = vi.spyOn(window, 'open').mockImplementation(() => {
-      orden.push('ventana');
-      return null;
-    });
-    mostrar(datos([recordatorio()]));
-    await userEvent.click(within(fila('Ana Pérez')).getByRole('button', { name: 'Abrir WhatsApp' }));
-    await waitFor(() => expect(abrir).toHaveBeenCalledWith('https://wa.me/525512345678?text=Hola', '_blank', 'noopener'));
-    expect(m.abrirWhatsApp).toHaveBeenCalledWith(CITA_A, '2026-11-16');
-    expect(orden).toEqual(['registro', 'ventana']);
-    abrir.mockRestore();
-  });
-
-  test('si no se pudo registrar, no abre la pestaña y avisa', async () => {
-    m.abrirWhatsApp.mockResolvedValue({ mensaje: 'Teléfono no válido para WhatsApp' });
-    const abrir = vi.spyOn(window, 'open').mockImplementation(() => null);
-    mostrar(datos([recordatorio()]));
-    await userEvent.click(within(fila('Ana Pérez')).getByRole('button', { name: 'Abrir WhatsApp' }));
-    expect(await screen.findByRole('alert')).toHaveTextContent('Teléfono no válido para WhatsApp');
-    expect(abrir).not.toHaveBeenCalled();
-    abrir.mockRestore();
-  });
 });

@@ -1,20 +1,8 @@
-/** Campos que una plantilla puede usar: `{paciente}`, `{fecha}`, `{hora}`, `{medico}`, `{consultorio}`, `{telefono_consultorio}`. */
-export interface DatosPlantilla {
-  paciente: string;
-  fecha: string;
-  hora: string;
-  medico: string;
-  consultorio: string;
-  telefono_consultorio: string;
-}
+import { LIMITES_PLANTILLA, rellenarPlantilla, validarPlantillas, type DatosPlantilla, type Plantillas } from '@consultorio/contracts';
 
-export interface Plantillas {
-  correoAsunto: string;
-  correoCuerpo: string;
-  whatsapp: string;
-}
-
-export const LIMITES_PLANTILLA: Record<keyof Plantillas, number> = { correoAsunto: 120, correoCuerpo: 1000, whatsapp: 700 };
+// Los campos, los límites y la validación son los mismos que usa la pantalla de configuración: viven en contracts.
+export { LIMITES_PLANTILLA, validarPlantillas };
+export type { DatosPlantilla, Plantillas, ResultadoValidacion } from '@consultorio/contracts';
 
 export const PLANTILLAS_POR_OMISION: Plantillas = {
   correoAsunto: 'Recordatorio de tu cita en {consultorio}',
@@ -29,27 +17,7 @@ export const PLANTILLAS_POR_OMISION: Plantillas = {
 const ESCAPES: Record<string, string> = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
 export const escaparHtml = (s: string): string => s.replace(/[&<>"']/g, (c) => ESCAPES[c]!);
 
-/**
- * Sustituye `{campo}` por su valor en una sola pasada (un valor con llaves no se vuelve a sustituir).
- * Con `html: true` escapa el texto de la plantilla y los valores; los campos desconocidos o ausentes se dejan tal cual.
- */
+/** Con `html: true` escapa el texto de la plantilla y los valores; si no, texto plano. */
 export function rellenar(plantilla: string, datos: DatosPlantilla, o: { html: boolean }): string {
-  const base = o.html ? escaparHtml(plantilla) : plantilla;
-  return base.replace(/\{([a-z_]+)\}/g, (completo, campo: string) => {
-    if (!Object.hasOwn(datos, campo)) return completo;
-    const valor = datos[campo as keyof DatosPlantilla];
-    if (typeof valor !== 'string') return completo;
-    return o.html ? escaparHtml(valor) : valor;
-  });
-}
-
-export type ResultadoValidacion = { ok: true } | { ok: false; campo: keyof Plantillas; error: string };
-
-export function validarPlantillas(p: Plantillas): ResultadoValidacion {
-  for (const campo of Object.keys(LIMITES_PLANTILLA) as (keyof Plantillas)[]) {
-    const texto = p[campo];
-    if (texto.trim().length === 0) return { ok: false, campo, error: 'La plantilla no puede estar vacía' };
-    if (texto.length > LIMITES_PLANTILLA[campo]) return { ok: false, campo, error: `Máximo ${LIMITES_PLANTILLA[campo]} caracteres` };
-  }
-  return { ok: true };
+  return rellenarPlantilla(plantilla, datos, o.html ? escaparHtml : undefined);
 }

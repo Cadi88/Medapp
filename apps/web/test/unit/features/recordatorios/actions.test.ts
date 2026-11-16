@@ -28,6 +28,20 @@ describe('aprobarRecordatorio', () => {
     expect(m.revalidatePath).toHaveBeenCalledWith('/recordatorios');
   });
 
+  test('tras la hora de envío, un correo que sigue aprobado avisa que no salió; si salió, no', async () => {
+    m.llamarGateway.mockResolvedValueOnce(exito({ citaId: CITA_A, estado: 'aprobado' }));
+    expect(await acciones.aprobarRecordatorio(CITA_A, true)).toEqual({ mensaje: 'No se pudo enviar' });
+    m.llamarGateway.mockResolvedValueOnce(exito({ citaId: CITA_A, estado: 'enviado' }));
+    expect(await acciones.aprobarRecordatorio(CITA_A, true)).toEqual({ ok: true });
+  });
+
+  test('antes de la hora de envío "aprobado" es lo esperado', async () => {
+    m.llamarGateway.mockResolvedValueOnce(exito({ citaId: CITA_A, estado: 'aprobado' }));
+    expect(await acciones.aprobarRecordatorio(CITA_A, false)).toEqual({ ok: true });
+    m.llamarGateway.mockResolvedValueOnce(exito({ citaId: CITA_A, estado: 'aprobado' }));
+    expect(await acciones.aprobarRecordatorio(CITA_A)).toEqual({ ok: true });
+  });
+
   test('un id que no es uuid no llega al gateway', async () => {
     expect(await acciones.aprobarRecordatorio('../x')).toEqual({ mensaje: 'Revisa los datos del formulario' });
     expect(m.llamarGateway).not.toHaveBeenCalled();

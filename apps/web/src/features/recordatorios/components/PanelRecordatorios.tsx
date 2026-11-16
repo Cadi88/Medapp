@@ -10,6 +10,8 @@ import { ETIQUETA_MODO } from '@/features/consultorio/logica/plantillas';
 import { agruparPorFechaYMedico, hayPendientes } from '../logica/presentacion';
 import { FilaRecordatorio, type Ejecutar } from './FilaRecordatorio';
 
+const MENSAJE_GENERICO = 'Ocurrió un error. Intenta de nuevo.';
+
 interface Props {
   datos: RecordatoriosRespuesta;
   /** Rango que se pidió (fechas locales); "Aprobar todos" aprueba exactamente ese. */
@@ -30,6 +32,8 @@ export function PanelRecordatorios({ datos, desde, hasta, zona }: Props) {
     try {
       const r = await accion();
       if ('mensaje' in r) setError(r.mensaje);
+    } catch {
+      setError(MENSAJE_GENERICO);
     } finally {
       setOcupado(false);
     }
@@ -62,7 +66,7 @@ export function PanelRecordatorios({ datos, desde, hasta, zona }: Props) {
                 <h3 className="text-sm font-medium text-muted-foreground">{m.medico}</h3>
                 <ul className="grid gap-2">
                   {m.citas.map((c) => (
-                    <FilaRecordatorio key={c.citaId} cita={c} zona={zona} ejecutar={ejecutar} ocupado={ocupado} />
+                    <FilaRecordatorio key={c.citaId} cita={c} zona={zona} horaEnvio={datos.horaEnvio} ejecutar={ejecutar} ocupado={ocupado} />
                   ))}
                 </ul>
               </div>
