@@ -122,5 +122,5 @@ export type RespuestaPublica = z.infer<typeof respuestaPublicaSchema>;
 export const resultadoRespuestaSchema = z.object({ estado: z.enum(['registrada', 'respondida', 'invalida']) });
 export type ResultadoRespuesta = z.infer<typeof resultadoRespuestaSchema>;
 
-/** Parámetro de ruta de `GET/POST /respuestas/:token` (el token son 43 caracteres; el tope evita trabajo inútil con basura). */
-export const tokenParamsSchema = z.object({ token: z.string().min(1).max(100) });
+/** Parámetro de ruta de `/respuestas/:token`: el servicio decide si tiene la forma de un token; basura = enlace inválido, nunca un 400. */
+export const tokenParamsSchema = z.object({ token: z.string() });

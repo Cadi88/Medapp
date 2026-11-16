@@ -21,9 +21,9 @@ interface ResumenMensaje {
   To: { Address: string }[];
 }
 
-/** Mailpit efímero (buzón SMTP de pruebas; misma imagen que docker-compose.yml). SMTP 1025, API HTTP 8025. */
+/** Mailpit efímero (buzón SMTP de pruebas; misma imagen y versión que docker-compose.yml). SMTP 1025, API HTTP 8025. */
 export async function startMailpit(): Promise<TestMailpit> {
-  const container = await new GenericContainer('axllent/mailpit')
+  const container = await new GenericContainer('axllent/mailpit:v1.33.1')
     .withExposedPorts(1025, 8025)
     .withWaitStrategy(Wait.forHttp('/api/v1/info', 8025).forStatusCode(200))
     .start();

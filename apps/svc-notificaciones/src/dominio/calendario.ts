@@ -93,11 +93,16 @@ export function sinAprobarYVencido(ahora: DateTime, zona: string, modo: ModoReco
   return salida !== null && ahora >= salida;
 }
 
-/** Un envío aprobado sale en ese momento si ya pasó su hora de envío y la cita aún no empieza (si no, lo enviará la corrida del día). */
-export function enviableAhora(ahora: DateTime, zona: string, horaEnvio: string, fechaCita: string, inicioIso: string): boolean {
-  const salida = instanteDeEnvio(zona, horaEnvio, fechaCita);
+/**
+ * Un envío aprobado sale en ese momento si la cita aún no empieza y ya pasó su hora de envío, o la corrida de la víspera ya
+ * corrió (`corridaHecha`: si la hora se movió después, esa corrida no volverá a pasar y nadie lo enviaría). Si no, lo enviará la corrida del día.
+ */
+export function enviableAhora(ahora: DateTime, zona: string, horaEnvio: string, fechaCita: string, inicioIso: string, corridaHecha: boolean): boolean {
   const inicio = DateTime.fromISO(inicioIso, { setZone: true });
-  return salida !== null && inicio.isValid && ahora >= salida && ahora < inicio;
+  if (!inicio.isValid || ahora >= inicio) return false;
+  if (corridaHecha) return true;
+  const salida = instanteDeEnvio(zona, horaEnvio, fechaCita);
+  return salida !== null && ahora >= salida;
 }
 
 /** Motivo por el que `desde`–`hasta` (fechas locales `YYYY-MM-DD`) no es un rango válido de a lo sumo `maxDias` días inclusive; `null` si lo es. */

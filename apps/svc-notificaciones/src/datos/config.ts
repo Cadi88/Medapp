@@ -11,11 +11,11 @@ export interface ConfigRecordatorios {
 
 export const CONFIG_POR_OMISION: ConfigRecordatorios = { modo: 'con_revision', horaEnvio: '10:00:00', plantillas: PLANTILLAS_POR_OMISION };
 
-/** Configuración del tenant activo; sin fila rige la de por omisión. */
-export async function leerConfig(tx: pg.PoolClient, tenantId: string): Promise<ConfigRecordatorios> {
+/** Configuración del tenant activo; sin fila rige la de por omisión. Con `bloquear` toma la fila `FOR UPDATE` (leer-modificar-escribir sin pérdida de cambios). */
+export async function leerConfig(tx: pg.PoolClient, tenantId: string, bloquear = false): Promise<ConfigRecordatorios> {
   const r = await tx.query<{ modo: ModoRecordatorios; hora_envio: string; asunto: string; cuerpo: string; whatsapp: string }>(
     `SELECT modo, hora_envio::text AS hora_envio, plantilla_correo_asunto AS asunto, plantilla_correo_cuerpo AS cuerpo, plantilla_whatsapp AS whatsapp
-       FROM config_recordatorios WHERE tenant_id = $1`,
+       FROM config_recordatorios WHERE tenant_id = $1${bloquear ? ' FOR UPDATE' : ''}`,
     [tenantId],
   );
   const f = r.rows[0];

@@ -13,6 +13,7 @@ import type { FastifyPluginAsync } from 'fastify';
 import { DateTime } from 'luxon';
 import { uuidv7 } from 'uuidv7';
 import { leerConfig } from '../datos/config.js';
+import { existeCorrida } from '../datos/corridas.js';
 import { leerZonaHoraria } from '../datos/consultorios.js';
 import {
   aprobarEnvio,
@@ -25,7 +26,7 @@ import {
   type Envio,
   type EnvioDetalle,
 } from '../datos/envios.js';
-import { enviableAhora, errorDeRango, fechaCitaLocal, recortarHora, type EstadoEnvio } from '../dominio/calendario.js';
+import { enviableAhora, errorDeRango, fechaCitaLocal, fechaDeEnvio, recortarHora, type EstadoEnvio } from '../dominio/calendario.js';
 import { armarRecordatorio, armarWhatsApp } from '../dominio/recordatorios.js';
 import { asegurarEnvios, enviarCorreo, type ContextoEnvio, type ResultadoEnvio } from '../envio.js';
 import { exigirPersonal } from './acceso.js';
@@ -58,9 +59,13 @@ async function intentarEnvio(ctx: ContextoEnvio, tenantId: string, usuarioId: st
 /** Envía en ese momento un correo aprobado si ya pasó su hora de envío y la cita aún no empieza; si no, lo enviará la corrida del día. */
 async function enviarSiCorresponde(ctx: ContextoEnvio, tenantId: string, usuarioId: string, envio: Envio): Promise<ResultadoEnvio | null> {
   try {
-    const { zona, config } = await withTenant(ctx.pool, tenantId, async (tx) => ({ zona: await leerZonaHoraria(tx, tenantId), config: await leerConfig(tx, tenantId) }));
+    const { zona, config, corridaHecha } = await withTenant(ctx.pool, tenantId, async (tx) => ({
+      zona: await leerZonaHoraria(tx, tenantId),
+      config: await leerConfig(tx, tenantId),
+      corridaHecha: await existeCorrida(tx, tenantId, fechaDeEnvio(envio.fechaCita)),
+    }));
     const cita = (await ctx.puertos.agenda.obtenerCitas(tenantId, envio.fechaCita, envio.fechaCita)).find((c) => c.citaId === envio.citaId);
-    if (!zona || !cita || !enviableAhora(DateTime.fromJSDate(ctx.reloj()), zona, config.horaEnvio, envio.fechaCita, cita.inicio)) return null;
+    if (!zona || !cita || !enviableAhora(DateTime.fromJSDate(ctx.reloj()), zona, config.horaEnvio, envio.fechaCita, cita.inicio, corridaHecha)) return null;
   } catch (err) {
     ctx.logger?.error({ err, envioId: envio.id }, 'no se pudo decidir el envío inmediato');
     return null;
@@ -126,6 +131,9 @@ export const recordatoriosRutas: FastifyPluginAsync<{ ctx: ContextoEnvio }> = as
     const { tenantId, usuarioId } = req.ctx;
     const envio = await withTenant(pool, tenantId, (tx) => envioCorreoVigenteDeCita(tx, tenantId, citaId));
     if (!envio) throw new AppError('NO_ENCONTRADO', 'Recordatorio no encontrado', 404);
+    // El enlace vence al inicio de la cita: una cita que ya empezó (o que ya no está) no recibe el recordatorio.
+    const cita = (await ctx.puertos.agenda.obtenerCitas(tenantId, envio.fechaCita, envio.fechaCita)).find((c) => c.citaId === citaId);
+    if (!cita || ahora() >= DateTime.fromISO(cita.inicio, { setZone: true })) throw new AppError('CONFLICTO', 'La cita ya empezó; no se puede reenviar el recordatorio', 409);
     const reabierto = await withTenant(pool, tenantId, (tx) => reabrirFallido(tx, tenantId, envio.id, usuarioId, ctx.reloj()));
     if (!reabierto) throw new AppError('CONFLICTO', 'Solo se puede reintentar un correo que no se pudo enviar', 409);
     return { citaId, estado: estadoTrasEnvio(await intentarEnvio(ctx, tenantId, usuarioId, envio.id)) };

@@ -38,7 +38,7 @@ describe('sinAprobarYVencido', () => {
 
 describe('enviableAhora', () => {
   const inicio = '2030-01-08T15:00:00.000Z'; // 09:00 local
-  const f = (ahora: string, hora = '10:00') => enviableAhora(en(ahora), ZONA, hora, '2030-01-08', inicio);
+  const f = (ahora: string, hora = '10:00', corridaHecha = false) => enviableAhora(en(ahora), ZONA, hora, '2030-01-08', inicio, corridaHecha);
   test('después de la hora de envío del día anterior y antes del inicio → true', () => {
     expect(f('2030-01-07T10:00:00')).toBe(true);
     expect(f('2030-01-08T08:59:00')).toBe(true);
@@ -51,6 +51,15 @@ describe('enviableAhora', () => {
   });
   test('hora inválida → false', () => {
     expect(f('2030-01-07T11:00:00', 'x')).toBe(false);
+  });
+  test('la corrida de la víspera ya corrió aunque la hora se movió después → true (si no, nadie lo enviaría)', () => {
+    // La corrida fue a las 10:00; luego la hora cambió a 18:00 y son las 13:00.
+    expect(f('2030-01-07T13:00:00', '18:00', true)).toBe(true);
+    expect(f('2030-01-07T13:00:00', '18:00', false)).toBe(false);
+  });
+  test('con corrida hecha, la cita que ya empezó sigue sin enviarse; hora inválida tampoco bloquea', () => {
+    expect(f('2030-01-08T09:00:00', '18:00', true)).toBe(false);
+    expect(f('2030-01-07T13:00:00', 'x', true)).toBe(true);
   });
 });
 

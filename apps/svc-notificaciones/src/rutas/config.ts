@@ -23,7 +23,8 @@ export const configRutas: FastifyPluginAsync<{ ctx: ContextoEnvio }> = async (ap
     // La zona del consultorio se pide a identidad (fuera de la transacción) y se guarda con la configuración.
     const { zonaHoraria } = await ctx.puertos.identidad.obtenerConsultorio(tenantId);
     return withTenant(ctx.pool, tenantId, async (tx) => {
-      const actual = await leerConfig(tx, tenantId);
+      // FOR UPDATE: dos PUT parciales simultáneos se serializan y ninguno pisa el cambio del otro.
+      const actual = await leerConfig(tx, tenantId, true);
       const { nueva, campos } = cambiosDeConfig(actual, cambios);
       const v = validarPlantillas(nueva.plantillas);
       if (!v.ok) throw new AppError('VALIDACION', v.error, 400, [{ campo: v.campo }]);

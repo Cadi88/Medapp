@@ -79,6 +79,17 @@ describe('PUT /config', () => {
     }
   });
 
+  test('dos PUT parciales simultáneos no se pisan (lectura con FOR UPDATE)', async () => {
+    expect((await llamar('PUT', { admin: true, payload: { horaEnvio: '09:00' } })).status).toBe(200);
+    const rs = await Promise.all([
+      llamar('PUT', { admin: true, payload: { horaEnvio: '11:00' } }),
+      llamar('PUT', { admin: true, payload: { modo: 'sin_revision' } }),
+      llamar('PUT', { admin: true, payload: { plantillas: { whatsapp: 'Hola {paciente}' } } }),
+    ]);
+    expect(rs.map((r) => r.status)).toEqual([200, 200, 200]);
+    expect((await llamar('GET')).cuerpo).toMatchObject({ modo: 'sin_revision', horaEnvio: '11:00', plantillas: { whatsapp: 'Hola {paciente}' } });
+  });
+
   test('guardar sin cambios no emite evento; un cambio posterior emite solo lo que cambió', async () => {
     await llamar('PUT', { admin: true, payload: { modo: 'con_revision', horaEnvio: '10:00' } });
     expect(await eventos()).toHaveLength(0);

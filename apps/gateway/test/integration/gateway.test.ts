@@ -330,6 +330,13 @@ describe('rate limit por IP', () => {
     expect((await g.inject(post)).statusCode).toBe(429);
   });
 
+  test('el logo de la página de respuesta es público y comparte el límite por IP', async () => {
+    const g = await nuevo({ limitePublicoPorMin: 1 });
+    const logo = { url: '/api/notificaciones/respuestas/abc/logo', remoteAddress: '10.9.2.1' };
+    expect((await g.inject(logo)).statusCode).toBe(200);
+    expect((await g.inject(logo)).statusCode).toBe(429);
+  });
+
   test('aplica a rutas de sesión, auth y jwks; es por IP', async () => {
     const g = await nuevo({ limitePublicoPorMin: 1 });
     for (const url of ['/api/identidad/tenants/mios', '/api/identidad/.well-known/jwks.json', '/api/identidad/auth/get-session']) {

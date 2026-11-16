@@ -128,6 +128,90 @@ describe('GET /respuestas/:token (pública)', () => {
   });
 });
 
+describe('formato del token', () => {
+  test('un token que no tiene 43 caracteres base64url es invalida (200) sin tocar la base, también si es larguísimo', async () => {
+    const consultas: string[] = [];
+    const original = n.appPool.query.bind(n.appPool);
+    (n.appPool as unknown as { query: unknown }).query = (...args: unknown[]) => {
+      consultas.push(String(args[0]));
+      return (original as (...a: unknown[]) => unknown)(...args);
+    };
+    try {
+      for (const malo of ['abc', 'x'.repeat(42), 'x'.repeat(44), 'x'.repeat(300), 'a%20b'.padEnd(43, 'a'), 'ñ'.repeat(43)]) {
+        const g = await get(malo);
+        expect(g, malo).toMatchObject({ status: 200, cuerpo: { estado: 'invalida' } });
+        const p = await post(malo);
+        expect(p, malo).toMatchObject({ status: 200, cuerpo: { estado: 'invalida' } });
+        expect((await n.app.inject({ method: 'GET', url: `/respuestas/${malo}/logo` })).statusCode).toBe(404);
+      }
+    } finally {
+      (n.appPool as unknown as { query: unknown }).query = original;
+    }
+    expect(consultas.filter((c) => /fn_envio_por_token/.test(c))).toEqual([]);
+  });
+});
+
+describe('GET /respuestas/:token/logo (pública)', () => {
+  const PNG = Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 1, 2, 3]);
+  const conLogo = async <T>(fn: () => Promise<T>): Promise<T> => {
+    const original = n.dobles.consultorio;
+    n.dobles.consultorio = { ...original, logoKey: 'logos/t/x.png' };
+    n.dobles.logos.set('logos/t/x.png', { bytes: PNG, tipo: 'image/png' });
+    try {
+      return await fn();
+    } finally {
+      n.dobles.consultorio = original;
+      n.dobles.logos.clear();
+    }
+  };
+  const logo = (token: string) => n.app.inject({ method: 'GET', url: `/respuestas/${token}/logo` });
+
+  test('enlace vigente o respondido: bytes con content-type, caché privada y nosniff', async () => {
+    await conLogo(async () => {
+      const s = await sembrar();
+      const r = await logo(s.token);
+      expect(r.statusCode).toBe(200);
+      expect(r.headers['content-type']).toBe('image/png');
+      expect(r.headers['cache-control']).toBe('private, max-age=300');
+      expect(r.headers['x-content-type-options']).toBe('nosniff');
+      expect(Array.from(r.rawPayload)).toEqual(Array.from(PNG));
+      const respondida = await sembrar({ respuesta: 'confirma' });
+      expect((await logo(respondida.token)).statusCode).toBe(200);
+    });
+  });
+
+  test('enlace inválido, vencido, anulado, sin cita o sin logo → 404 igual para todos', async () => {
+    await conLogo(async () => {
+      const cuerpos = new Set<string>();
+      const intentos = [
+        generarToken().token,
+        (await sembrar({ expira: '2030-01-07T16:59:59.000Z' })).token,
+        (await sembrar({ estado: 'anulado', sinToken: true })).token,
+        (await sembrar({ estado: 'aprobado' })).token,
+      ];
+      const huerfana = await sembrar();
+      n.dobles.citas = [];
+      intentos.push(huerfana.token);
+      for (const t of intentos) {
+        const r = await logo(t);
+        expect(r.statusCode).toBe(404);
+        cuerpos.add(r.body);
+      }
+      expect(cuerpos.size).toBe(1);
+    });
+    // Consultorio sin logo, o con la llave ausente del almacén.
+    const s = await sembrar();
+    expect((await logo(s.token)).statusCode).toBe(404);
+    const original = n.dobles.consultorio;
+    n.dobles.consultorio = { ...original, logoKey: 'logos/t/falta.png' };
+    try {
+      expect((await logo(s.token)).statusCode).toBe(404);
+    } finally {
+      n.dobles.consultorio = original;
+    }
+  });
+});
+
 describe('POST /respuestas/:token (pública)', () => {
   test('dos veces → registrada y luego respondida; emite un solo evento con origen paciente y actor null', async () => {
     const s = await sembrar();

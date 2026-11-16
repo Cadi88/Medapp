@@ -119,7 +119,7 @@ services:
   # Buzón de pruebas: recibe el SMTP de los recordatorios (puerto 1025, solo en la red interna) y lo muestra en http://localhost:8025.
   mailpit:
     profiles: ["app"]
-    image: axllent/mailpit
+    image: axllent/mailpit:v1.33.1
     ports: ["8025:8025"]
     healthcheck:
       test: ["CMD", "/mailpit", "readyz"]

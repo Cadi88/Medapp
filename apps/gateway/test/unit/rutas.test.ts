@@ -74,6 +74,8 @@ describe('clasificarRuta', () => {
   test('gateway: /api/notificaciones/respuestas/* es pública; /api/notificaciones/recordatorios exige JWT', () => {
     expect(clasificarRuta('GET', '/api/notificaciones/respuestas/abc')).toEqual({ servicio: 'notificaciones', rutaDestino: '/respuestas/abc', acceso: 'publica' });
     expect(clasificarRuta('POST', '/api/notificaciones/respuestas/abc')?.acceso).toBe('publica');
+    expect(clasificarRuta('GET', '/api/notificaciones/respuestas/abc/logo')).toEqual({ servicio: 'notificaciones', rutaDestino: '/respuestas/abc/logo', acceso: 'publica' });
+    expect(clasificarRuta('POST', '/api/notificaciones/respuestas/abc/logo')?.acceso).toBe('publica');
     expect(clasificarRuta('PUT', '/api/notificaciones/respuestas/abc')?.acceso).toBe('protegida');
     expect(clasificarRuta('GET', '/api/notificaciones/recordatorios?desde=2030-01-01')?.acceso).toBe('protegida');
     expect(clasificarRuta('GET', '/api/notificaciones/config')?.acceso).toBe('protegida');

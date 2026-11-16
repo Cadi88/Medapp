@@ -140,6 +140,24 @@ describe('aprobar', () => {
     expect((await envios('correo'))[0]).toMatchObject({ estado: 'aprobado', aprobado_por: recepcionId });
   });
 
+  test('la hora de envío se movió después de la corrida de la víspera: aprobar a las 13:00 envía en ese momento', async () => {
+    // La corrida de hoy ya corrió a las 10:00; luego el admin cambió la hora a 18:00 y son las 13:00.
+    ahora = new Date('2030-01-07T19:00:00.000Z');
+    const c = cita();
+    n.dobles.citas = [c];
+    const admin = await n.tokenPara({ tid: T, rol: 'medico', admin: true });
+    const put = await n.app.inject({ method: 'PUT', url: '/config', headers: { authorization: `Bearer ${admin}` }, payload: { horaEnvio: '18:00' } });
+    expect(put.statusCode).toBe(200);
+    await listar();
+    // Sin corrida registrada y antes de las 18:00 todavía no le toca salir.
+    expect((await llamar('POST', `/recordatorios/${c.citaId}/aprobar`)).cuerpo).toMatchObject({ estado: 'aprobado' });
+    expect(n.dobles.correosEnviados).toHaveLength(0);
+    await withTenant(n.appPool, T, (tx) => tx.query("INSERT INTO corrida (tenant_id, fecha_envio) VALUES ($1, '2030-01-07')", [T]));
+    const r = await llamar('POST', `/recordatorios/${c.citaId}/aprobar`);
+    expect(r.cuerpo).toMatchObject({ estado: 'enviado' });
+    expect(n.dobles.correosEnviados).toHaveLength(1);
+  });
+
   test('cita sin envío conocido → 404; una cita ya empezada no se envía', async () => {
     expect((await llamar('POST', `/recordatorios/${uuidv7()}/aprobar`)).status).toBe(404);
     expect((await llamar('POST', '/recordatorios/no-es-uuid/aprobar')).status).toBe(400);
@@ -170,6 +188,48 @@ describe('aprobar', () => {
     // Ya enviado: no hay nada que reintentar.
     expect((await llamar('POST', `/recordatorios/${c.citaId}/reintentar`)).status).toBe(409);
     expect((await llamar('POST', `/recordatorios/${uuidv7()}/reintentar`)).status).toBe(404);
+  });
+
+  test('reintentar una cita que ya empezó → 409 y no envía', async () => {
+    const c = cita();
+    n.dobles.citas = [c];
+    await listar();
+    await withTenant(n.appPool, T, (tx) => tx.query("UPDATE envio SET estado = 'fallido', intentos = 3 WHERE cita_id = $1", [c.citaId]));
+    ahora = new Date('2030-01-08T16:00:00.000Z');
+    const r = await llamar('POST', `/recordatorios/${c.citaId}/reintentar`);
+    expect(r.status).toBe(409);
+    expect(String(r.cuerpo.message)).toMatch(/ya empezó/);
+    expect(n.dobles.correosEnviados).toHaveLength(0);
+    expect((await envios('correo'))[0]).toMatchObject({ estado: 'fallido', intentos: 3 });
+    // Si la cita ya ni aparece en agenda tampoco se reenvía.
+    ahora = new Date('2030-01-07T17:00:00.000Z');
+    n.dobles.citas = [];
+    expect((await llamar('POST', `/recordatorios/${c.citaId}/reintentar`)).status).toBe(409);
+  });
+
+  test('otro consultorio no puede aprobar ni abrir WhatsApp de una cita ajena (404) y nada cambia', async () => {
+    const c = cita();
+    n.dobles.citas = [c];
+    await listar();
+    const original = n.puertos.agenda.obtenerCitas;
+    const duenio = T;
+    // Como la agenda real, solo entrega las citas de su consultorio.
+    n.puertos.agenda.obtenerCitas = async (tenantId) => (tenantId === duenio ? [c] : []);
+    const antes = await envios();
+    const otro = uuidv7();
+    const tokenOtro = await n.tokenPara({ tid: otro, rol: 'recepcion' });
+    const h = { authorization: `Bearer ${tokenOtro}` };
+    try {
+      expect((await n.app.inject({ method: 'POST', url: `/recordatorios/${c.citaId}/aprobar`, headers: h })).statusCode).toBe(404);
+      expect((await n.app.inject({ method: 'POST', url: `/recordatorios/${c.citaId}/whatsapp`, headers: h, payload: { fecha: '2030-01-08' } })).statusCode).toBe(404);
+      expect((await n.app.inject({ method: 'POST', url: `/recordatorios/${c.citaId}/reintentar`, headers: h })).statusCode).toBe(404);
+    } finally {
+      n.puertos.agenda.obtenerCitas = original;
+    }
+    expect(await envios()).toEqual(antes);
+    expect(n.dobles.correosEnviados).toHaveLength(0);
+    const deOtro = await withTenant(n.appPool, otro, async (tx) => (await tx.query('SELECT count(*)::int AS n FROM envio')).rows[0]);
+    expect(deOtro).toEqual({ n: 0 });
   });
 
   test('aprobar todos: aprueba los pendientes del rango y envía los que ya corresponde', async () => {
