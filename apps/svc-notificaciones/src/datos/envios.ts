@@ -102,3 +102,13 @@ export async function anularNoEnviados(tx: pg.PoolClient, tenantId: string, cita
     [tenantId, citaId],
   );
 }
+
+/** Envíos de correo de las citas de esa fecha local (la RLS de `tx` acota el tenant). */
+export async function listarEnviosCorreoDeFecha(tx: pg.PoolClient, tenantId: string, fechaCita: string): Promise<Envio[]> {
+  const r = await tx.query<Fila>(
+    `SELECT id, cita_id, fecha_cita::text AS fecha_cita, canal, estado, intentos FROM envio
+      WHERE tenant_id = $1 AND fecha_cita = $2 AND canal = 'correo' ORDER BY creado_en, id`,
+    [tenantId, fechaCita],
+  );
+  return r.rows.map((f) => ({ id: f.id, citaId: f.cita_id, fechaCita: f.fecha_cita, canal: f.canal, estado: f.estado, intentos: f.intentos }));
+}

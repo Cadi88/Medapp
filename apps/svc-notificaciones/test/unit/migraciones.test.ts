@@ -30,3 +30,14 @@ describe('migración 001_notificaciones', () => {
     expect(m001).toMatch(/GRANT EXECUTE ON FUNCTION fn_envio_por_token\(text\) TO "notificaciones_app";/);
   });
 });
+
+describe('migración 003_listar_consultorios', () => {
+  const m003 = readFileSync(fileURLToPath(new URL('../../migrations/003_listar_consultorios.sql', import.meta.url)), 'utf8');
+  test('fn_consultorios: SECURITY DEFINER, search_path fijo, EXECUTE solo para notificaciones_app y sin datos de contacto', () => {
+    expect(m003).toMatch(/fn_consultorios\(\)\s+RETURNS TABLE \(tenant_id uuid, zona_horaria text\)/);
+    expect(m003).toMatch(/SECURITY DEFINER/);
+    expect(m003).toMatch(/SET search_path = public, pg_temp/);
+    expect(m003).toMatch(/REVOKE ALL ON FUNCTION fn_consultorios\(\) FROM PUBLIC;/);
+    expect(m003).toMatch(/GRANT EXECUTE ON FUNCTION fn_consultorios\(\) TO "notificaciones_app";/);
+  });
+});

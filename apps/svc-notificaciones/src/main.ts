@@ -5,6 +5,7 @@ import { iniciarConsumidor } from './consumidor.js';
 import { crearCanalSmtp } from './correo/smtp.js';
 import { crearClienteAgenda } from './externos/agenda.js';
 import { crearClienteIdentidad } from './externos/identidad.js';
+import { iniciarProgramador } from './programador.js';
 import { buildServer } from './server.js';
 
 function requerida(nombre: string): string {
@@ -51,9 +52,12 @@ const puertos = {
   }),
   almacen: crearAlmacenS3(env.almacen),
 };
-const consumidor = await iniciarConsumidor({ pool, nc, identidad: puertos.identidad, logger });
+const reloj = () => new Date();
+const ctxEnvio = { pool, puertos, reloj, webOrigen: env.webOrigen, logger };
+const consumidor = await iniciarConsumidor({ pool, nc, identidad: puertos.identidad, logger, envio: ctxEnvio });
+const programador = iniciarProgramador(ctxEnvio, { reloj });
 const publicador = startOutboxPublisher({ pool, nc, onError: (err) => logger.error({ err }, 'publicador del outbox') });
-const app = await buildServer({ pool, jwksUrl: env.jwksUrl, tokenInterno: env.tokenInterno, webOrigen: env.webOrigen, reloj: () => new Date(), puertos });
+const app = await buildServer({ pool, jwksUrl: env.jwksUrl, tokenInterno: env.tokenInterno, webOrigen: env.webOrigen, reloj, puertos });
 
 let apagando = false;
 const apagar = async (): Promise<void> => {
@@ -62,6 +66,7 @@ const apagar = async (): Promise<void> => {
   // Cada paso es independiente: un fallo se registra y no impide cerrar el resto.
   const pasos: [string, () => Promise<unknown>][] = [
     ['servidor HTTP', () => app.close()],
+    ['programador', () => programador.detener()],
     ['consumidor', () => consumidor.stop()],
     ['publicador del outbox', () => publicador.stop()],
     ['NATS', () => nc.drain()],
