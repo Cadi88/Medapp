@@ -42,3 +42,6 @@ export function estadosSiguientes(estado: EstadoCitaDto): EstadoCitaDto[] {
 export function esReprogramable(estado: EstadoCitaDto): boolean {
   return estado === 'agendada' || estado === 'confirmada';
 }
+
+/** Marca de la cita cuyo paciente pidió cambiarla desde un recordatorio (se limpia al reprogramar). */
+export const ETIQUETA_PIDE_CAMBIO = 'Pide cambio';

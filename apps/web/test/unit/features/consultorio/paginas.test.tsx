@@ -1,8 +1,9 @@
 // @vitest-environment node
 import { beforeEach, describe, expect, test, vi } from 'vitest';
 import { isValidElement, type ReactElement } from 'react';
+import { exito, fallo } from '@/lib/api/resultado';
 
-const m = vi.hoisted(() => ({ obtenerContexto: vi.fn() }));
+const m = vi.hoisted(() => ({ obtenerContexto: vi.fn(), obtenerConfig: vi.fn() }));
 vi.mock('next/navigation', () => ({
   redirect: (d: string) => {
     throw new Error(`REDIRECT:${d}`);
@@ -10,6 +11,7 @@ vi.mock('next/navigation', () => ({
 }));
 vi.mock('@/lib/sesion/contexto', () => ({ obtenerContexto: m.obtenerContexto }));
 vi.mock('@/features/consultorio/actions', () => ({}));
+vi.mock('@/features/recordatorios/api', () => ({ obtenerConfig: m.obtenerConfig }));
 
 const { default: ConsultorioPage } = await import('@/app/(app)/consultorio/page');
 const { default: AppLayout } = await import('@/app/(app)/layout');
@@ -28,6 +30,11 @@ const consultorio = {
   pais: 'MX',
   moneda: 'MXN',
 };
+const configRecordatorios = {
+  modo: 'con_revision',
+  horaEnvio: '10:00',
+  plantillas: { correoAsunto: 'Recordatorio de tu cita', correoCuerpo: 'Hola {paciente}', whatsapp: 'Hola {paciente}' },
+};
 const contexto = (admin: boolean, c = consultorio) => ({ claims: { sub: 'u1', tid: 't1', rol: 'recepcion', admin, mfa: true }, consultorio: c });
 
 beforeEach(() => vi.clearAllMocks());
@@ -38,11 +45,22 @@ describe('página /consultorio', () => {
     await expect(ConsultorioPage()).rejects.toThrow('REDIRECT:/sin-acceso');
   });
 
-  test('con admin muestra el formulario con los datos actuales', async () => {
+  test('con admin muestra el formulario con los datos actuales y la sección Recordatorios', async () => {
     m.obtenerContexto.mockResolvedValue(contexto(true));
+    m.obtenerConfig.mockResolvedValue(exito(configRecordatorios));
     const el = (await ConsultorioPage()) as ReactElement;
     expect(isValidElement(el)).toBe(true);
     expect(JSON.stringify(el)).toContain('Mi consultorio');
+    expect(JSON.stringify(el)).toContain('"consultorio":"Sonrisas"');
+    expect(JSON.stringify(el)).toContain('Recordatorio de tu cita');
+  });
+
+  test('si no se puede leer la configuración de recordatorios, va a la frontera de error; sin sesión desvía', async () => {
+    m.obtenerContexto.mockResolvedValue(contexto(true));
+    m.obtenerConfig.mockResolvedValueOnce(fallo(503, { code: 'INTERNO', message: 'x' } as never));
+    await expect(ConsultorioPage()).rejects.toThrow('No se pudo cargar los recordatorios (503)');
+    m.obtenerConfig.mockResolvedValueOnce(fallo(401, { code: 'NO_AUTENTICADO', message: 'x' } as never));
+    await expect(ConsultorioPage()).rejects.toThrow('REDIRECT:/login');
   });
 });
 

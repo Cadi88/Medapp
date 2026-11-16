@@ -54,7 +54,7 @@ export function TablaBitacora({ eventos: iniciales, siguiente: cursorInicial, no
               <TableCell>{formatearFechaEvento(e.ocurrido_en, zona)}</TableCell>
               <TableCell>{nombreDelActor(e.actor_id, nombres)}</TableCell>
               <TableCell>
-                {etiquetaAccion(e.accion)}
+                {etiquetaAccion(e.accion, e.detalle)}
                 {detalleDeAccion(e.accion, e.detalle) ? (
                   <span className="block text-xs text-muted-foreground">{detalleDeAccion(e.accion, e.detalle)}</span>
                 ) : null}

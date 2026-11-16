@@ -4,7 +4,7 @@ import type { Cita, MedicoAgenda, TipoCita } from '@consultorio/contracts';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { ETIQUETA_ESTADO } from '../logica/estados';
+import { ETIQUETA_ESTADO, ETIQUETA_PIDE_CAMBIO } from '../logica/estados';
 import { formatearDia, formatearRango, sumarDias } from '../logica/formato';
 
 interface Props {
@@ -52,7 +52,10 @@ export function ListaDelDia({ citas, medicos, tipos, zona, fecha, onFecha, onSel
               >
                 <span className="flex items-center justify-between gap-2">
                   <span className="font-medium">{c.contacto.nombre}</span>
-                  <Badge variant="secondary">{ETIQUETA_ESTADO[c.estado]}</Badge>
+                  <span className="flex gap-1">
+                    {c.pideCambio ? <Badge variant="outline">{ETIQUETA_PIDE_CAMBIO}</Badge> : null}
+                    <Badge variant="secondary">{ETIQUETA_ESTADO[c.estado]}</Badge>
+                  </span>
                 </span>
                 <span className="text-sm text-muted-foreground">{formatearRango(c.inicio, c.fin, zona)}</span>
                 <span className="text-sm text-muted-foreground">

@@ -2,6 +2,7 @@
 
 import { revalidatePath } from 'next/cache';
 import { estadoDeFallo, type Fallo } from '@/features/comun/errores';
+import { actualizarConfigEnApi } from '@/features/recordatorios/api';
 import { textosDe } from '@/features/sesion/logica/validaciones';
 import type { EstadoFormulario } from '@/features/sesion/tipos';
 import { obtenerConsultorioEnApi, personalizarEnApi, quitarLogoEnApi, subirLogoEnApi } from './api';
@@ -14,6 +15,7 @@ import {
   MENSAJE_LOGO_TIPO,
   telefonoParaComparar,
 } from './logica/formulario';
+import { errorDePlantilla, esHoraValida, esModoValido, MENSAJE_HORA, MENSAJE_MODO, type Plantillas } from './logica/plantillas';
 
 const CAMPOS = ['nombreComercial', 'direccion', 'telefono', 'colorPrimario'] as const;
 const MENSAJE_LOGO_NO_GUARDADO = 'No se pudo guardar el logo ahora. Intenta de nuevo más tarde.';
@@ -79,5 +81,35 @@ export async function quitarLogo(): Promise<EstadoFormulario> {
   const r = await quitarLogoEnApi();
   if (!r.ok) return estadoDeFallo(r);
   refrescarApp();
+  return { ok: true };
+}
+
+const CAMPOS_RECORDATORIOS = ['modo', 'horaEnvio', 'correoAsunto', 'correoCuerpo', 'whatsapp'] as const;
+const CAMPOS_PLANTILLA: (keyof Plantillas)[] = ['correoAsunto', 'correoCuerpo', 'whatsapp'];
+
+/** Modo, hora de envío y plantillas de los recordatorios. Se validan aquí (igual que en el servicio) para señalar el campo. */
+export async function guardarConfigRecordatorios(_prev: EstadoFormulario, fd: FormData): Promise<EstadoFormulario> {
+  const t = textosDe(fd);
+  const valores = Object.fromEntries(CAMPOS_RECORDATORIOS.map((c) => [c, t[c] ?? ''])) as Record<(typeof CAMPOS_RECORDATORIOS)[number], string>;
+  const errores: Record<string, string> = {};
+  if (!esModoValido(valores.modo)) errores.modo = MENSAJE_MODO;
+  if (!esHoraValida(valores.horaEnvio)) errores.horaEnvio = MENSAJE_HORA;
+  for (const campo of CAMPOS_PLANTILLA) {
+    const error = errorDePlantilla(campo, valores[campo]);
+    if (error) errores[campo] = error;
+  }
+  if (Object.keys(errores).length > 0) return { errores, valores };
+
+  const r = await actualizarConfigEnApi({
+    modo: valores.modo,
+    horaEnvio: valores.horaEnvio,
+    plantillas: { correoAsunto: valores.correoAsunto, correoCuerpo: valores.correoCuerpo, whatsapp: valores.whatsapp },
+  });
+  if (!r.ok) {
+    const campo = campoDelError(r);
+    if (r.status === 400 && campo) return { errores: { [campo]: r.error.message }, valores };
+    return { ...estadoDeFallo(r), valores };
+  }
+  revalidatePath('/consultorio');
   return { ok: true };
 }

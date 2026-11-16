@@ -6,7 +6,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { AvisoDeError } from '@/features/sesion/components/campo';
 import { cambiarEstadoCita } from '../actions';
-import { ACCION_ESTADO, ETIQUETA_ESTADO, esReprogramable, estadosSiguientes } from '../logica/estados';
+import { ACCION_ESTADO, ETIQUETA_ESTADO, ETIQUETA_PIDE_CAMBIO, esReprogramable, estadosSiguientes } from '../logica/estados';
 import { formatearRango } from '../logica/formato';
 
 interface Props {
@@ -44,7 +44,10 @@ export function DetalleCita({ cita, medico, tipo, zona, onCambio, onReprogramar 
       <AvisoDeError mensaje={error} />
       <div className="flex items-center justify-between gap-2">
         <p className="text-lg font-semibold">{cita.contacto.nombre}</p>
-        <Badge variant="secondary">{ETIQUETA_ESTADO[cita.estado]}</Badge>
+        <span className="flex gap-1">
+          {cita.pideCambio ? <Badge variant="outline">{ETIQUETA_PIDE_CAMBIO}</Badge> : null}
+          <Badge variant="secondary">{ETIQUETA_ESTADO[cita.estado]}</Badge>
+        </span>
       </div>
       <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 text-sm">
         <dt className="text-muted-foreground">Cuándo</dt>

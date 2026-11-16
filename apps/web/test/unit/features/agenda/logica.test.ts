@@ -170,3 +170,18 @@ describe('limitesDelCalendario', () => {
     expect(limitesDelCalendario([{ inicio: local('23:30'), fin: local('00:30', '2026-11-13') }], ZONA)).toEqual({ slotMinTime: '00:00:00', slotMaxTime: '24:00:00' });
   });
 });
+
+describe('"Pide cambio" en el calendario', () => {
+  test('el título lo dice y extendedProps lo trae; sin pedirlo, nada cambia', () => {
+    const [pide] = citasAEventos([cita({ pideCambio: true })], medicos, 'America/Mexico_City', tipos);
+    expect(pide?.title).toBe('Ana Pérez · Consulta · Pide cambio');
+    expect(pide?.extendedProps).toMatchObject({ pideCambio: true });
+    const [normal] = citasAEventos([cita()], medicos, 'America/Mexico_City', tipos);
+    expect(normal?.title).toBe('Ana Pérez · Consulta');
+    expect(normal?.extendedProps).toMatchObject({ pideCambio: false });
+  });
+
+  test('sin tipo conocido también', () => {
+    expect(citasAEventos([cita({ pideCambio: true })], medicos, 'America/Mexico_City')[0]?.title).toBe('Ana Pérez · Pide cambio');
+  });
+});

@@ -35,6 +35,19 @@ describe('acceso por ruta', () => {
     expect(fetchFalso).not.toHaveBeenCalled();
   });
 
+  test('Review Focus 4: /r/<token> y su logo son públicos: pasan sin sesión y sin llamar al gateway', async () => {
+    for (const ruta of ['/r/abc_DEF-123', '/r/abc_DEF-123?accion=cancela', '/r/abc_DEF-123/logo']) {
+      expect(destino(await proxy(peticion(ruta)))).toBeNull();
+    }
+    expect(fetchFalso).not.toHaveBeenCalled();
+  });
+
+  test('"/r" solo o una ruta que apenas se parece no es pública', async () => {
+    for (const ruta of ['/r', '/recordatorios', '/rx/abc']) {
+      expect(destino(await proxy(peticion(ruta)))).toBe('http://localhost:3000/login');
+    }
+  });
+
   test('sin cookie de Better Auth → /login', async () => {
     const r = await proxy(peticion('/agenda', ['token_consultorio=x', `consultorio_id=${CONSULTORIO}`]));
     expect(destino(r)).toBe('http://localhost:3000/login');

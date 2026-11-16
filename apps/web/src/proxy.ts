@@ -14,6 +14,9 @@ import { necesitaRenovar } from '@/lib/sesion/token';
 
 /** Sin sesión. */
 const RUTAS_PUBLICAS = new Set(['/login', '/login/mfa', '/registro']);
+/** Respuesta del paciente a un recordatorio (`/r/<token>`) y su logo: el enlace del correo es la única credencial. */
+const RUTA_RESPUESTA_PACIENTE = /^\/r\/[A-Za-z0-9_-]+(\/logo)?$/;
+const esRutaPublica = (ruta: string) => RUTAS_PUBLICAS.has(ruta) || RUTA_RESPUESTA_PACIENTE.test(ruta);
 /** Flujo de entrada (y la página de acceso denegado): basta la sesión de Better Auth, sin consultorio ni token. */
 const RUTAS_SOLO_SESION = new Set(['/cambiar-password', '/configurar-mfa', '/elegir-consultorio', '/sin-acceso']);
 
@@ -50,7 +53,7 @@ function desviar(req: NextRequest, destino: Desvio | '/elegir-consultorio'): Nex
  */
 export async function proxy(req: NextRequest): Promise<NextResponse> {
   const { pathname } = req.nextUrl;
-  if (RUTAS_PUBLICAS.has(pathname)) return NextResponse.next();
+  if (esRutaPublica(pathname)) return NextResponse.next();
 
   const cabeceraSesion = cabeceraCookieAuthDe(req.cookies.getAll());
   if (!cabeceraSesion) return redirigir(req, '/login');

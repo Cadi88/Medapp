@@ -16,6 +16,7 @@ describe('etiquetaAccion', () => {
       ['cita.cancelada', 'Cita cancelada'],
       ['cita.estado_cambiado', 'Estado de cita cambiado'],
       ['consultorio.actualizado', 'Consultorio actualizado'],
+      ['config_recordatorios.actualizada', 'Recordatorios configurados'],
     ]);
   });
 
@@ -70,5 +71,32 @@ describe('detalleDeAccion', () => {
     expect(detalleDeAccion('consultorio.actualizado', { campos: ['nuevo'] })).toBeUndefined();
     expect(detalleDeAccion('consultorio.actualizado', { campos: ['logo', 'nuevo'] })).toBe('Logo');
     expect(detalleDeAccion('cita.creada', { campos: ['logo'] })).toBeUndefined();
+  });
+});
+
+describe('etiquetas de la respuesta del paciente (con su origen)', () => {
+  test('cita.cancelada con origen paciente → "Cita cancelada por el paciente"', () => {
+    expect(etiquetaAccion('cita.cancelada', { origen: 'paciente' })).toBe('Cita cancelada por el paciente');
+  });
+
+  test('registrado por recepción lo dice', () => {
+    expect(etiquetaAccion('cita.cancelada', { origen: 'recepcion' })).toBe('Cita cancelada por el paciente (registrado por recepción)');
+    expect(etiquetaAccion('cita.estado_cambiado', { origen: 'recepcion', pideCambio: true })).toBe('Paciente pide cambio (registrado por recepción)');
+  });
+
+  test('cita.estado_cambiado a confirmada con origen paciente → "Cita confirmada por el paciente"', () => {
+    expect(etiquetaAccion('cita.estado_cambiado', { origen: 'paciente', a: 'confirmada' })).toBe('Cita confirmada por el paciente');
+  });
+
+  test('cita.estado_cambiado con pideCambio y origen paciente → "Paciente pide cambio"', () => {
+    expect(etiquetaAccion('cita.estado_cambiado', { origen: 'paciente', pideCambio: true })).toBe('Paciente pide cambio');
+  });
+
+  test('las acciones del personal y los eventos viejos (sin origen) conservan su texto', () => {
+    expect(etiquetaAccion('cita.cancelada', { origen: 'personal' })).toBe('Cita cancelada');
+    expect(etiquetaAccion('cita.cancelada', {})).toBe('Cita cancelada');
+    expect(etiquetaAccion('cita.cancelada', null)).toBe('Cita cancelada');
+    expect(etiquetaAccion('cita.estado_cambiado', { origen: 'personal', a: 'confirmada' })).toBe('Estado de cita cambiado');
+    expect(etiquetaAccion('cita.creada', { origen: 'paciente' })).toBe('Cita creada');
   });
 });
