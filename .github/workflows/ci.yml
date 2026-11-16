@@ -120,9 +120,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # Simple a propósito: en main se construyen siempre las cinco imágenes (la caché de capas de Docker
+        # Simple a propósito: en main se construyen siempre las seis imágenes (la caché de capas de Docker
         # y `turbo prune` en el Dockerfile mantienen el coste bajo). No se calcula "afectado".
-        app: [gateway, svc-identidad, svc-auditoria, svc-agenda, web]
+        app: [gateway, svc-identidad, svc-auditoria, svc-agenda, svc-notificaciones, web]
     steps:
       - uses: actions/checkout@v4
 
@@ -162,7 +162,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        app: [gateway, svc-identidad, svc-auditoria, svc-agenda, web]
+        app: [gateway, svc-identidad, svc-auditoria, svc-agenda, svc-notificaciones, web]
     steps:
       - uses: aws-actions/configure-aws-credentials@v4
         with:

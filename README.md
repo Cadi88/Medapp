@@ -6,7 +6,8 @@ SaaS multi-tenant para consultorios médicos. Monorepo pnpm + turbo (Node 24, Ty
 - `apps/svc-identidad`: registro de consultorios, autenticación (Better Auth, MFA) y tokens de tenant.
 - `apps/svc-auditoria`: bitácora de eventos con cadena hash por tenant.
 - `apps/svc-agenda`: médicos, horarios, tipos de cita, bloqueos y citas (puerto 3004, base `agenda_db`).
-- `apps/web`: sitio web del consultorio (Next.js, puerto 3000): registro, agenda, médicos, equipo, perfil y bitácora.
+- `apps/svc-notificaciones`: recordatorios de cita por correo y WhatsApp, y respuestas del paciente (puerto 3005, base `notificaciones_db`).
+- `apps/web`: sitio web del consultorio (Next.js, puerto 3000): registro, agenda, Mi día, Recordatorios, médicos, equipo, perfil y bitácora.
 - `packages/*`: contratos de eventos y plataforma compartida. `tests/e2e`: E2E de API; `tests/e2e-web`: E2E de navegador (Playwright).
 
 ## Ejecutar en local
@@ -20,7 +21,7 @@ docker compose --profile app up -d --build --wait
 ```
 
 El sitio web queda en **`http://localhost:3000`** (abre `/registro` para crear un consultorio) y el gateway en
-`http://localhost:8080` (rutas `/api/identidad/*`, `/api/auditoria/*` y `/api/agenda/*`). Sin `--profile app` solo se levanta la infraestructura (Postgres, NATS, MinIO).
+`http://localhost:8080` (rutas `/api/identidad/*`, `/api/auditoria/*`, `/api/agenda/*` y `/api/notificaciones/*`). Mailpit, el buzón donde caen los correos de los recordatorios, queda en **`http://localhost:8025`**. Sin `--profile app` solo se levanta la infraestructura (Postgres, NATS, MinIO).
 
 El gateway confía como proxy solo en la IP fija del contenedor `web` (`CONFIAR_EN_PROXY=172.28.10.200/32`). En local un
 cliente que llama directo a Next puede elegir su `X-Forwarded-For` (no hay proxy inverso delante): aceptado, solo local.
@@ -50,6 +51,48 @@ Variables de `svc-identidad` (ya puestas en `docker-compose.yml` y en `infra/`):
 | `S3_ENDPOINT` | `http://minio:9000` | no se define (S3 real) |
 | `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY` | `MINIO_ROOT_USER` y `MINIO_ROOT_PASSWORD` | no se definen (rol de la tarea) |
 
+## Recordatorios
+
+Cada cita con paciente puede recibir un recordatorio **el día anterior**, a la hora de envío del consultorio (por omisión
+**10:00**, en la zona horaria del consultorio) y **todos los días de la semana, domingo incluido**. Va por correo (si la cita
+tiene correo) y, además, la recepción puede abrir el mensaje de WhatsApp ya escrito desde la pantalla **Recordatorios**
+(el envío por WhatsApp es siempre manual: se abre `wa.me` en una pestaña nueva, no se manda solo).
+
+- **Modos** (en **Mi consultorio**, solo administración): *Con revisión* (por omisión: solo se envía lo que la recepción
+  **aprobó** en **Recordatorios**, uno por uno o con "Aprobar todos") y *Sin revisión* (todo sale solo a la hora de envío).
+  "Enviar ahora" adelanta un correo ya aprobado. Los correos fallidos se reintentan hasta 3 veces y luego aparecen con "Reintentar".
+- **Hora de envío y plantillas** (asunto, cuerpo del correo y WhatsApp) también se editan en **Mi consultorio**; los campos
+  `{paciente}`, `{fecha}`, `{hora}`, `{medico}`, `{consultorio}` y `{telefono_consultorio}` se rellenan al enviar.
+- **Respuesta del paciente**: el correo trae un enlace `/r/{token}` (página pública, sin sesión) para confirmar, cancelar o
+  pedir cambio de horario. Abrir el enlace no responde por sí solo: hace falta elegir y pulsar "Enviar respuesta". El enlace es
+  de un solo uso y vence al inicio de la cita; la respuesta llega a la agenda por un evento y cambia el estado de la cita.
+- **Mi día** (`/mi-dia`) es la vista del médico para el celular: sus citas de hoy y las de los próximos días.
+
+**En local** el correo sale a **Mailpit** (SMTP `mailpit:1025`, sin autenticación): ábrelo en `http://localhost:8025` para ver cada
+mensaje y copiar el enlace de respuesta. Nunca sale un correo real desde el entorno local.
+
+**Para el piloto en AWS** hace falta un servidor SMTP: elige un proveedor con capa gratuita (por ejemplo un servicio de correo
+transaccional con cuota mensual sin costo; revisa que su límite alcance para tus citas) y **crea tú la cuenta**: este repositorio
+no crea ninguna. Con los datos del proveedor completa el secreto `consultorio/smtp` de Secrets Manager (`host`, `port`,
+`remitente`, `usuario` y `password`; con el puerto 587 se exige STARTTLS y con 465 TLS implícito). Después, en el DNS del dominio
+del remitente, publica los registros **SPF** y **DKIM** que te indique el proveedor (y, si puedes, DMARC); sin ellos los
+recordatorios acaban en spam.
+
+Variables de `svc-notificaciones` (ya puestas en `docker-compose.yml` y en `infra/`):
+
+| Variable | Local | AWS |
+| --- | --- | --- |
+| `PORT` | `3005` | `3005` |
+| `DATABASE_URL`, `MIGRATOR_DATABASE_URL` | `notificaciones_app` / `notificaciones_migrator` en `notificaciones_db` | secretos `consultorio/notificaciones_app` y `_migrator` |
+| `TOKEN_INTERNO` | del `.env` (≥ 32 caracteres) | secreto `consultorio/token-interno` (compartido con agenda e identidad) |
+| `SMTP_HOST`, `SMTP_PORT`, `SMTP_USUARIO`, `SMTP_PASSWORD`, `SMTP_REMITENTE` | `mailpit`, `1025`, sin usuario, `recordatorios@consultorio.local` | secreto `consultorio/smtp` |
+| `WEB_ORIGEN` | `http://localhost:3000` | URL pública del sitio (los enlaces de los correos apuntan ahí) |
+| `AGENDA_URL`, `IDENTIDAD_URL`, `JWKS_URL`, `NATS_URL` | red de compose | Service Connect |
+| `S3_*` | MinIO (solo lectura de `logos/*`) | rol de la tarea: `s3:GetObject` sobre `logos/*` y `kms:Decrypt` |
+
+`TOKEN_INTERNO` protege las rutas `/interno/*` de agenda, identidad y notificaciones (cabecera `x-token-interno`); el gateway
+responde 404 a `/api/<servicio>/interno/*`, así que no se alcanzan desde internet. El gateway recibe además `NOTIFICACIONES_URL`.
+
 ## Producción
 
 - `svc-identidad` solo debe ser alcanzable a través del gateway: confía en `x-forwarded-for` (que fija el gateway) para el límite
@@ -72,8 +115,8 @@ pnpm lint && pnpm typecheck
 El pipeline está en `.github/workflows/ci.yml`:
 
 - `verificar` (PR y push a `main`): lint, typecheck y pruebas (unit + integración con Testcontainers). En PR solo lo afectado respecto a `origin/main`; en `main`, todo.
-- `e2e`: levanta el stack con `docker compose --profile app`, corre `@consultorio/e2e` y después `@consultorio/e2e-web` (Playwright con Chromium); si falla, sube el reporte de Playwright como artefacto.
-- `imagenes` y `desplegar` (solo `main`): construyen y publican las cinco imágenes (gateway, svc-identidad, svc-auditoria, svc-agenda y web) en ECR solo con tag = SHA (sin `latest`) y registran una revisión nueva de la tarea en ECS.
+- `e2e`: levanta el stack con `docker compose --profile app` (incluye Mailpit, que no necesita configuración), corre `@consultorio/e2e` y después `@consultorio/e2e-web` (Playwright con Chromium; la prueba de recordatorios lee el correo en la API de Mailpit, `E2E_MAILPIT_URL`, por omisión `http://localhost:8025`); si falla, sube el reporte de Playwright como artefacto.
+- `imagenes` y `desplegar` (solo `main`): construyen y publican las seis imágenes (gateway, svc-identidad, svc-auditoria, svc-agenda, svc-notificaciones y web) en ECR solo con tag = SHA (sin `latest`) y registran una revisión nueva de la tarea en ECS.
 
 Configuración necesaria en GitHub para `imagenes` y `desplegar`:
 
@@ -87,10 +130,10 @@ Mientras `AWS_ROLE_ARN` no esté definida, esos dos jobs se omiten.
 `infra/` (`@consultorio/infra`) define la infraestructura de AWS con CDK en `mx-central-1`: `Consultorio-Red`
 (VPC de 2 AZ, 1 NAT), `Consultorio-Datos` (KMS, RDS PostgreSQL 16, S3), `Consultorio-Mensajeria` (NATS con JetStream en
 Fargate + EFS) y `Consultorio-Servicios` (ECR, ECS, ALB y secretos). El ALB envía `/` al sitio `web` y `/api/*` al gateway;
-`agenda_db` vive en la misma instancia RDS. El costo mensual estimado está al inicio de `infra/bin/app.ts`.
+`agenda_db` y `notificaciones_db` viven en la misma instancia RDS. El costo mensual estimado está al inicio de `infra/bin/app.ts`.
 
 **Es solo código: no hay nada desplegado y no se ha ejecutado ningún comando contra AWS.** `cdk bootstrap` y `cdk deploy`
-crean recursos que cuestan dinero (unos 235 USD/mes según la estimación de `infra/bin/app.ts`; 400-450 USD/mes con
+crean recursos que cuestan dinero (unos 245 USD/mes según la estimación de `infra/bin/app.ts`; 400-450 USD/mes con
 alta disponibilidad); no ejecutarlos antes de tener ingresos o presupuesto aprobado.
 Lo siguiente es local y gratuito (no necesita credenciales de AWS):
 
@@ -108,12 +151,12 @@ Requisitos para un despliegue futuro (quien despliegue, con su cuenta):
    (origen que acepta Better Auth) usa por defecto el DNS del balanceador. Apuntar el DNS del dominio al ALB.
 4. Arranque manual de una sola vez (detallado en `infra/lib/servicios.ts`): crear en RDS las bases y roles como en
    `docker/postgres/init.sql` con las contraseñas de los secretos `consultorio/<rol>` de Secrets Manager, añadir a esos
-   seis secretos (identidad, auditoría y agenda: `_app` y `_migrator`) el campo `url` con la cadena de conexión completa y reemplazar `consultorio/jwt-private-jwk` por la JWK privada.
+   ocho secretos (identidad, auditoría, agenda y notificaciones: `_app` y `_migrator`) el campo `url` con la cadena de conexión completa, reemplazar `consultorio/jwt-private-jwk` por la JWK privada y completar `consultorio/smtp` con los datos del proveedor de correo (ver Recordatorios).
 5. Configurar en GitHub `AWS_ROLE_ARN` (rol OIDC con permisos sobre ECR y ECS) y `ECS_CLUSTER=consultorio` (ver CI). Los
-   servicios ECS se llaman `gateway`, `svc-identidad`, `svc-auditoria`, `svc-agenda` y `web` y sus repositorios `consultorio/<app>`.
+   servicios ECS se llaman `gateway`, `svc-identidad`, `svc-auditoria`, `svc-agenda`, `svc-notificaciones` y `web` y sus repositorios `consultorio/<app>`.
 6. Imágenes: los repositorios ECR tienen etiquetas inmutables y no existe `:latest`. El primer despliegue fija la imagen
    inicial con `-c imageTag=<sha>` (sin él, la stack exige el parámetro `ImageTag`), así que antes hay que publicar
-   `consultorio/<app>:<sha>` de las cinco apps (el sitio `web` se construye con `docker/Dockerfile.web`). Después, el CI publica solo `:<sha>` y, tras la aprobación del environment
+   `consultorio/<app>:<sha>` de las seis apps (el sitio `web` se construye con `docker/Dockerfile.web`). Después, el CI publica solo `:<sha>` y, tras la aprobación del environment
    `produccion`, registra una revisión nueva de cada definición de tarea con esa imagen y la asigna al servicio. Un
    `cdk deploy` posterior debe pasar el `imageTag` que esté en producción.
 
@@ -151,10 +194,17 @@ cerrarse (o aceptarse explícitamente) antes de poner datos reales en AWS:
       `tenant.creado` v2) → `svc-identidad` → gateway (límite de 2 MB en `PUT /consultorio/logo`) → `web` (su
       `consultorioSchema` exige los campos nuevos, así que antes de identidad fallaría al leer el consultorio).
 
-Variables nuevas (compose y CDK): `web` usa `GATEWAY_URL` (por defecto `http://gateway:8080`), `COOKIE_SEGURA` (`true` con HTTPS) y
-`WEB_ORIGEN` (origen público del sitio); `svc-identidad` recibe `ORIGENES_CONFIABLES` con ese mismo origen y el gateway `AGENDA_URL`.
+- [ ] **Orden de despliegue de los recordatorios**: desplegar en este orden: `svc-agenda` (rutas `/interno/*` y eventos de
+      respuesta) → `svc-identidad` (ruta interna `consultorio-para-mensaje`) → `svc-notificaciones` (crea su base y consume los eventos) →
+      gateway (`NOTIFICACIONES_URL`) → `web` (pantallas Recordatorios, Mi día y `/r/{token}`). Antes, crear `notificaciones_db`
+      con sus roles y completar los secretos `consultorio/smtp` y `consultorio/token-interno` (este último se genera solo, pero
+      agenda e identidad lo leen al arrancar: sin él no inician).
 
-Notas de red: solo el ALB es público; `svc-identidad`, `svc-auditoria` y `svc-agenda` solo aceptan tráfico del gateway (identidad confía en
-`x-forwarded-for`), y `CONFIAR_EN_PROXY` del gateway es el CIDR de la VPC (`10.0.0.0/16`). `svc-auditoria` lee el JWKS por la ruta
+Variables nuevas (compose y CDK): `web` usa `GATEWAY_URL` (por defecto `http://gateway:8080`), `COOKIE_SEGURA` (`true` con HTTPS) y
+`WEB_ORIGEN` (origen público del sitio); `svc-identidad` recibe `ORIGENES_CONFIABLES` con ese mismo origen y el gateway `AGENDA_URL` y `NOTIFICACIONES_URL`.
+`TOKEN_INTERNO` (secreto `consultorio/token-interno`) llega a agenda, identidad y notificaciones; ver Recordatorios.
+
+Notas de red: solo el ALB es público; `svc-identidad`, `svc-auditoria`, `svc-agenda` y `svc-notificaciones` solo aceptan tráfico del gateway (identidad confía en
+`x-forwarded-for`; agenda e identidad aceptan además a notificaciones en sus rutas `/interno/*`), y `CONFIAR_EN_PROXY` del gateway es el CIDR de la VPC (`10.0.0.0/16`). `svc-auditoria`, `svc-agenda` y `svc-notificaciones` leen el JWKS por la ruta
 pública del gateway (`/api/identidad/.well-known/jwks.json`) para no abrir identidad a otro origen. Con `CDK_DEFAULT_ACCOUNT`
 definida la síntesis sigue sin consultar AWS (las zonas de disponibilidad están fijas en el código).

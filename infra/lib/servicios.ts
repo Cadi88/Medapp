@@ -40,6 +40,7 @@ export interface ServiciosStackProps extends StackProps {
   sgIdentidad: ISecurityGroup;
   sgAuditoria: ISecurityGroup;
   sgAgenda: ISecurityGroup;
+  sgNotificaciones: ISecurityGroup;
   sgWeb: ISecurityGroup;
   /**
    * ARN de un certificado ACM (en mx-central-1) para el listener HTTPS. Sin él, el balanceador escucha solo
@@ -49,7 +50,7 @@ export interface ServiciosStackProps extends StackProps {
   /** Origen público del sitio y de la API (comparten el balanceador), p. ej. https://app.ejemplo.mx. Por defecto, el DNS del balanceador. */
   urlPublica?: string;
   /**
-   * Etiqueta (SHA de git) de la imagen inicial de las cinco tareas. Sin ella, la stack declara el parámetro de
+   * Etiqueta (SHA de git) de la imagen inicial de las seis tareas. Sin ella, la stack declara el parámetro de
    * CloudFormation `ImageTag` (sin valor por defecto: el despliegue lo exige). Nunca `latest`.
    */
   imageTag?: string;
@@ -65,8 +66,8 @@ export function validarImageTag(tag: string): string {
   return tag;
 }
 
-type NombreApp = 'gateway' | 'svc-identidad' | 'svc-auditoria' | 'svc-agenda' | 'web';
-const APPS: NombreApp[] = ['gateway', 'svc-identidad', 'svc-auditoria', 'svc-agenda', 'web'];
+type NombreApp = 'gateway' | 'svc-identidad' | 'svc-auditoria' | 'svc-agenda' | 'svc-notificaciones' | 'web';
+const APPS: NombreApp[] = ['gateway', 'svc-identidad', 'svc-auditoria', 'svc-agenda', 'svc-notificaciones', 'web'];
 
 interface OpcionesServicio {
   puerto: number;
@@ -85,9 +86,10 @@ interface OpcionesServicio {
  * Servicios: repositorios ECR, clúster ECS, servicios Fargate, ALB y secretos.
  *
  * Detrás del ALB (público) están `web` (Next.js, ruta `/`, acción por omisión) y el gateway (`/api/*`). El navegador habla
- * con `web`, que llama al gateway por Service Connect (`http://gateway:8080`). `svc-identidad`, `svc-auditoria` y
- * `svc-agenda` quedan en subredes privadas y solo aceptan al gateway (`http://svc-identidad:3001`,
- * `http://svc-auditoria:3003`, `http://svc-agenda:3004`).
+ * con `web`, que llama al gateway por Service Connect (`http://gateway:8080`). `svc-identidad`, `svc-auditoria`,
+ * `svc-agenda` y `svc-notificaciones` quedan en subredes privadas y solo aceptan al gateway (`http://svc-identidad:3001`,
+ * `http://svc-auditoria:3003`, `http://svc-agenda:3004`, `http://svc-notificaciones:3005`); agenda e identidad aceptan además
+ * a notificaciones en sus rutas `/interno/*`, que exigen el secreto compartido `TOKEN_INTERNO`.
  *
  * IMÁGENES: los repositorios tienen etiquetas inmutables y no existe `:latest`. El CI (.github/workflows/ci.yml) sube
  * `consultorio/<app>:<sha>` y, tras la aprobación del environment `produccion`, registra una revisión nueva de la
@@ -98,13 +100,18 @@ interface OpcionesServicio {
  *
  * ARRANQUE MANUAL (una sola vez, por quien despliegue; no lo automatiza CDK):
  *  1. En RDS (una sola instancia), crear las bases y roles como `docker/postgres/init.sql` (`identidad_db`/`auditoria_db`/
- *     `agenda_db`, `<svc>_migrator` dueño de tablas, `<svc>_app` NOBYPASSRLS) usando las contraseñas generadas en los
- *     secretos `consultorio/<svc>_app` y `consultorio/<svc>_migrator` de identidad, auditoria y agenda.
- *  2. Añadir a cada uno de esos seis secretos el campo `url` con la cadena de conexión completa
+ *     `agenda_db`/`notificaciones_db`, `<svc>_migrator` dueño de tablas, `<svc>_app` NOBYPASSRLS) usando las contraseñas
+ *     generadas en los secretos `consultorio/<svc>_app` y `consultorio/<svc>_migrator` de identidad, auditoria, agenda y
+ *     notificaciones.
+ *  2. Añadir a cada uno de esos ocho secretos el campo `url` con la cadena de conexión completa
  *     (`postgres://<usuario>:<password>@<host>:5432/<bd>`; usuario, password, host y bd ya están en el secreto):
  *     los servicios leen `DATABASE_URL` y `MIGRATOR_DATABASE_URL` de ese campo.
  *  3. Reemplazar el valor de `consultorio/jwt-private-jwk` por la JWK privada (JSON) que firma los tokens.
- *  Mientras no se haga, las tareas de svc-identidad, svc-auditoria y svc-agenda no arrancan (campo/JSON inexistente).
+ *  4. Completar el secreto `consultorio/smtp` con los datos del proveedor de correo (host, port, remitente, usuario; la
+ *     contraseña la genera CDK como marcador y se reemplaza). Es cuenta del usuario: CDK no crea nada con el proveedor.
+ *     Para el piloto sirve la capa gratuita de un proveedor SMTP; configurar SPF y DKIM del dominio remitente (README, Recordatorios).
+ *  `consultorio/token-interno` (secreto compartido entre agenda, identidad y notificaciones) se genera solo.
+ *  Mientras no se haga, las tareas de svc-identidad, svc-auditoria, svc-agenda y svc-notificaciones no arrancan (campo/JSON inexistente).
  */
 export class ServiciosStack extends Stack {
   readonly cluster: Cluster;
@@ -146,10 +153,30 @@ export class ServiciosStack extends Stack {
     const auditoriaMigrator = secretoBd('auditoria_migrator', 'auditoria_db');
     const agendaApp = secretoBd('agenda_app', 'agenda_db');
     const agendaMigrator = secretoBd('agenda_migrator', 'agenda_db');
+    const notificacionesApp = secretoBd('notificaciones_app', 'notificaciones_db');
+    const notificacionesMigrator = secretoBd('notificaciones_migrator', 'notificaciones_db');
     const betterAuth = new Secret(this, 'SecretoBetterAuth', {
       secretName: 'consultorio/better-auth-secret',
       encryptionKey: clave,
       generateSecretString: { passwordLength: 64, excludePunctuation: true },
+    });
+    // Secreto compartido de las rutas /interno/* (agenda, identidad y notificaciones; 64 caracteres, el mínimo es 32).
+    const tokenInterno = new Secret(this, 'SecretoTokenInterno', {
+      secretName: 'consultorio/token-interno',
+      encryptionKey: clave,
+      generateSecretString: { passwordLength: 64, excludePunctuation: true },
+    });
+    // Correo saliente de los recordatorios. Los campos del proveedor son marcadores que completa quien despliega.
+    const smtp = new Secret(this, 'SecretoSmtp', {
+      secretName: 'consultorio/smtp',
+      encryptionKey: clave,
+      description: 'Marcadores: reemplazar host, port, remitente, usuario y password por los del proveedor SMTP (arranque manual).',
+      generateSecretString: {
+        secretStringTemplate: JSON.stringify({ host: 'completar', port: '587', remitente: 'completar', usuario: 'completar' }),
+        generateStringKey: 'password',
+        passwordLength: 32,
+        excludePunctuation: true,
+      },
     });
     const jwk = new Secret(this, 'SecretoJwk', {
       secretName: 'consultorio/jwt-private-jwk',
@@ -228,9 +255,12 @@ export class ServiciosStack extends Stack {
     const urlIdentidad = `http://svc-identidad:${PUERTOS.identidad}`;
     const urlAuditoria = `http://svc-auditoria:${PUERTOS.auditoria}`;
     const urlAgenda = `http://svc-agenda:${PUERTOS.agenda}`;
+    const urlNotificaciones = `http://svc-notificaciones:${PUERTOS.notificaciones}`;
     const jwksPorGateway = `http://gateway:${PUERTOS.gateway}/api/identidad/.well-known/jwks.json`;
     const https = props.certificadoArn !== undefined;
     const urlBd = (secreto: Secret) => SecretoEcs.fromSecretsManager(secreto, 'url');
+    const secretoToken = SecretoEcs.fromSecretsManager(tokenInterno);
+    const campoSmtp = (campo: string) => SecretoEcs.fromSecretsManager(smtp, campo);
 
     const gateway = crearServicio('gateway', {
       puerto: PUERTOS.gateway,
@@ -242,6 +272,7 @@ export class ServiciosStack extends Stack {
         IDENTIDAD_URL: urlIdentidad,
         AUDITORIA_URL: urlAuditoria,
         AGENDA_URL: urlAgenda,
+        NOTIFICACIONES_URL: urlNotificaciones,
         // El ALB está en las subredes públicas de la VPC: confiar en X-Forwarded-For solo de ese rango.
         CONFIAR_EN_PROXY: CIDR_VPC,
       },
@@ -274,6 +305,7 @@ export class ServiciosStack extends Stack {
         MIGRATOR_DATABASE_URL: urlBd(identidadMigrator),
         JWT_PRIVATE_JWK: SecretoEcs.fromSecretsManager(jwk),
         BETTER_AUTH_SECRET: SecretoEcs.fromSecretsManager(betterAuth),
+        TOKEN_INTERNO: secretoToken,
       },
     });
     crearServicio('svc-auditoria', {
@@ -294,7 +326,38 @@ export class ServiciosStack extends Stack {
       memoria: 512,
       sg: props.sgAgenda,
       entorno: { NATS_URL: props.natsUrl, JWKS_URL: jwksPorGateway },
-      secretos: { DATABASE_URL: urlBd(agendaApp), MIGRATOR_DATABASE_URL: urlBd(agendaMigrator) },
+      secretos: { DATABASE_URL: urlBd(agendaApp), MIGRATOR_DATABASE_URL: urlBd(agendaMigrator), TOKEN_INTERNO: secretoToken },
+    });
+    crearServicio('svc-notificaciones', {
+      puerto: PUERTOS.notificaciones,
+      cpu: 256,
+      memoria: 512,
+      sg: props.sgNotificaciones,
+      entorno: {
+        NATS_URL: props.natsUrl,
+        JWKS_URL: jwksPorGateway,
+        AGENDA_URL: urlAgenda,
+        IDENTIDAD_URL: urlIdentidad,
+        // Los enlaces de los correos apuntan a {WEB_ORIGEN}/r/{token}.
+        WEB_ORIGEN: urlPublica,
+        // Logos del consultorio (solo lectura). Sin S3_ENDPOINT ni llaves: en AWS el SDK usa el rol de la tarea.
+        S3_BUCKET: props.bucket.bucketName,
+        S3_REGION: this.region,
+      },
+      permisos: [
+        new PolicyStatement({ actions: ['s3:GetObject'], resources: [`${props.bucket.bucketArn}/logos/*`] }),
+        new PolicyStatement({ actions: ['kms:Decrypt'], resources: [props.clave.keyArn] }),
+      ],
+      secretos: {
+        DATABASE_URL: urlBd(notificacionesApp),
+        MIGRATOR_DATABASE_URL: urlBd(notificacionesMigrator),
+        TOKEN_INTERNO: secretoToken,
+        SMTP_HOST: campoSmtp('host'),
+        SMTP_PORT: campoSmtp('port'),
+        SMTP_REMITENTE: campoSmtp('remitente'),
+        SMTP_USUARIO: campoSmtp('usuario'),
+        SMTP_PASSWORD: campoSmtp('password'),
+      },
     });
     const web = crearServicio('web', {
       puerto: PUERTOS.web,

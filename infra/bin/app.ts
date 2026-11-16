@@ -8,11 +8,12 @@
  *   NAT Gateway (1) + datos procesados ....................................... ~ 35
  *   Application Load Balancer ................................................ ~ 20
  *   Fargate: gateway 0.25 vCPU/0.5 GB, auditoría 0.25/0.5, identidad 0.5/1, NATS 0.25/0.5,
- *            svc-agenda 0.25/0.5 y web 0.5/1 (los dos nuevos suman ~ 27) ................. ~ 82
+ *            svc-agenda 0.25/0.5, svc-notificaciones 0.25/0.5 (~ 9) y web 0.5/1 ......... ~ 91
  *   EFS (JetStream, pocos GB) + CloudWatch Logs + ECR ........................ ~ 10
- *   KMS (1 llave) + Secrets Manager (9 secretos) + S3 ........................ ~ 12
- *   Total orientativo ........................................................ ~ 235 USD/mes
- * agenda_db vive en la misma instancia RDS (no agrega costo de base de datos).
+ *   KMS (1 llave) + Secrets Manager (12 secretos) + S3 ....................... ~ 13
+ *   Correo: SMTP de la capa gratuita de un proveedor (el piloto no la agota) .. ~ 0
+ *   Total orientativo ........................................................ ~ 245 USD/mes
+ * agenda_db y notificaciones_db viven en la misma instancia RDS (no agregan costo de base de datos).
  * Con RDS Multi-AZ y 2 réplicas por servicio el total ronda 400-450 USD/mes.
  *
  * Contexto opcional (cdk.json o `-c clave=valor`):

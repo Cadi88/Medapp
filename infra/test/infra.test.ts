@@ -78,7 +78,7 @@ function tareaDe(texto: string): Json {
   expect(def).toBeDefined();
   return def!;
 }
-const NOMBRES_SERVICIOS = ['gateway', 'svc-identidad', 'svc-auditoria', 'svc-agenda', 'web'];
+const NOMBRES_SERVICIOS = ['gateway', 'svc-identidad', 'svc-auditoria', 'svc-agenda', 'svc-notificaciones', 'web'];
 const nombres = (lista: unknown): string[] => ((lista as { Name: string }[] | undefined) ?? []).map((e) => e.Name);
 
 describe('región y entorno', () => {
@@ -150,6 +150,7 @@ describe('DatosStack', () => {
       idDeGrupo(red, 'Grupo de seguridad de svc-identidad'),
       idDeGrupo(red, 'Grupo de seguridad de svc-auditoria'),
       idDeGrupo(red, 'Grupo de seguridad de svc-agenda'),
+      idDeGrupo(red, 'Grupo de seguridad de svc-notificaciones'),
     ];
     const bd = idDeGrupo(datos, 'Grupo de seguridad de la base de datos');
     const reglas = reglasDeEntrada().filter((r) => r.destino === bd);
@@ -179,6 +180,7 @@ describe('MensajeriaStack', () => {
       idDeGrupo(red, 'Grupo de seguridad de svc-identidad'),
       idDeGrupo(red, 'Grupo de seguridad de svc-auditoria'),
       idDeGrupo(red, 'Grupo de seguridad de svc-agenda'),
+      idDeGrupo(red, 'Grupo de seguridad de svc-notificaciones'),
     ];
     const reglas = reglasDeEntrada().filter((r) => r.destino === nats);
     expect(reglas.length).toBeGreaterThan(0);
@@ -204,8 +206,8 @@ describe('MensajeriaStack', () => {
 });
 
 describe('ServiciosStack', () => {
-  test('solo el balanceador es público: 5 servicios ECS y un único balanceador', () => {
-    servicios.resourceCountIs('AWS::ECS::Service', 5);
+  test('solo el balanceador es público: 6 servicios ECS y un único balanceador', () => {
+    servicios.resourceCountIs('AWS::ECS::Service', 6);
     servicios.resourceCountIs('AWS::ElasticLoadBalancingV2::LoadBalancer', 1);
     servicios.hasResourceProperties('AWS::ElasticLoadBalancingV2::LoadBalancer', { Scheme: 'internet-facing' });
     servicios.resourcePropertiesCountIs(
@@ -220,8 +222,8 @@ describe('ServiciosStack', () => {
     }
     servicios.hasResourceProperties('AWS::ECS::Cluster', { ClusterName: 'consultorio' });
   });
-  test('cinco repositorios ECR con etiquetas inmutables, escaneo al subir y ciclo de vida de 20 imágenes', () => {
-    servicios.resourceCountIs('AWS::ECR::Repository', 5);
+  test('seis repositorios ECR con etiquetas inmutables, escaneo al subir y ciclo de vida de 20 imágenes', () => {
+    servicios.resourceCountIs('AWS::ECR::Repository', 6);
     for (const RepositoryName of NOMBRES_SERVICIOS.map((n) => `consultorio/${n}`)) {
       servicios.hasResourceProperties('AWS::ECR::Repository', {
         RepositoryName,
@@ -232,7 +234,7 @@ describe('ServiciosStack', () => {
     }
   });
   test('las definiciones de tarea nunca usan :latest; sin imageTag la etiqueta es el parámetro ImageTag (obligatorio al desplegar)', () => {
-    expect(definicionesDeTarea()).toHaveLength(5);
+    expect(definicionesDeTarea()).toHaveLength(6);
     for (const d of definicionesDeTarea()) {
       const imagen = JSON.stringify(contenedor(d).Image);
       expect(imagen).not.toMatch(/latest/);
@@ -245,7 +247,7 @@ describe('ServiciosStack', () => {
   test('con imageTag (opción o contexto -c imageTag=<sha>) las tareas usan :<sha> y no hay parámetro', () => {
     const conTag = Template.fromStack(crearApp({ imageTag: '0123abcd' }).stacks.servicios);
     const defs = Object.values(conTag.findResources('AWS::ECS::TaskDefinition')) as Json[];
-    expect(defs).toHaveLength(5);
+    expect(defs).toHaveLength(6);
     for (const d of defs) expect(JSON.stringify(contenedor(d).Image)).toMatch(/:0123abcd"/);
     expect((conTag.toJSON().Parameters as Json | undefined)?.['ImageTag']).toBeUndefined();
   });
@@ -260,9 +262,9 @@ describe('ServiciosStack', () => {
     servicios.hasResourceProperties('AWS::ElasticLoadBalancingV2::TargetGroup', Match.objectLike({ HealthCheckPath: '/salud' }));
     servicios.hasResourceProperties('AWS::ElasticLoadBalancingV2::TargetGroup', Match.objectLike({ HealthCheckPath: '/login', Port: 3000 }));
   });
-  test('logs a CloudWatch y Service Connect en los cinco servicios', () => {
-    servicios.resourceCountIs('AWS::Logs::LogGroup', 5);
-    servicios.resourcePropertiesCountIs('AWS::ECS::Service', { ServiceConnectConfiguration: Match.objectLike({ Enabled: true }) }, 5);
+  test('logs a CloudWatch y Service Connect en los seis servicios', () => {
+    servicios.resourceCountIs('AWS::Logs::LogGroup', 6);
+    servicios.resourcePropertiesCountIs('AWS::ECS::Service', { ServiceConnectConfiguration: Match.objectLike({ Enabled: true }) }, 6);
   });
   test('svc-agenda: puerto 3004, JWKS por el gateway, secretos de agenda_db en la misma instancia', () => {
     const def = contenedor(tareaDe('svc-agenda'));
@@ -270,7 +272,7 @@ describe('ServiciosStack', () => {
     const valor = (n: string) => env.find((e) => e.Name === n)?.Value;
     expect(valor('PORT')).toBe('3004');
     expect(valor('JWKS_URL')).toBe('http://gateway:8080/api/identidad/.well-known/jwks.json');
-    expect(nombres(def.Secrets)).toEqual(expect.arrayContaining(['DATABASE_URL', 'MIGRATOR_DATABASE_URL']));
+    expect(nombres(def.Secrets)).toEqual(expect.arrayContaining(['DATABASE_URL', 'MIGRATOR_DATABASE_URL', 'TOKEN_INTERNO']));
     for (const n of nombres(def.Secrets)) expect(nombres(def.Environment)).not.toContain(n);
     for (const Name of ['consultorio/agenda_app', 'consultorio/agenda_migrator']) {
       servicios.hasResourceProperties('AWS::SecretsManager::Secret', Match.objectLike({ Name, KmsKeyId: Match.anyValue() }));
@@ -294,15 +296,77 @@ describe('ServiciosStack', () => {
       return doc.Statement;
     });
     const deS3 = sentencias.filter((st) => JSON.stringify(st.Action).includes('s3:'));
-    expect(deS3).toHaveLength(1);
-    const acciones = ([] as string[]).concat(deS3[0]!.Action as string | string[]).sort();
-    expect(acciones).toEqual(['s3:DeleteObject', 's3:GetObject', 's3:PutObject']);
-    const recurso = JSON.stringify(deS3[0]!.Resource);
-    expect(recurso).toContain('/logos/*');
-    expect(recurso).not.toContain('"*"');
+    expect(deS3).toHaveLength(2);
+    const accionesDe = (st: Json) => ([] as string[]).concat(st.Action as string | string[]).sort();
+    const deIdentidad = deS3.find((st) => accionesDe(st).length === 3)!;
+    expect(accionesDe(deIdentidad)).toEqual(['s3:DeleteObject', 's3:GetObject', 's3:PutObject']);
+    for (const st of deS3) {
+      const recurso = JSON.stringify(st.Resource);
+      expect(recurso).toContain('/logos/*');
+      expect(recurso).not.toContain('"*"');
+    }
     // El bucket va cifrado con KMS: sin estos permisos sobre la llave, guardar el logo fallaría.
     const deKms = sentencias.filter((st) => JSON.stringify(st.Action).includes('kms:GenerateDataKey'));
     expect(deKms.length).toBeGreaterThan(0);
+  });
+  test('svc-notificaciones: puerto 3005, solo lectura de logos/*, TOKEN_INTERNO y SMTP como secretos', () => {
+    const def = contenedor(tareaDe('svc-notificaciones'));
+    const env = def.Environment as { Name: string; Value: unknown }[];
+    const valor = (n: string) => env.find((e) => e.Name === n)?.Value;
+    expect(valor('PORT')).toBe('3005');
+    expect(valor('JWKS_URL')).toBe('http://gateway:8080/api/identidad/.well-known/jwks.json');
+    expect(valor('AGENDA_URL')).toBe('http://svc-agenda:3004');
+    expect(valor('IDENTIDAD_URL')).toBe('http://svc-identidad:3001');
+    expect(valor('NATS_URL')).toBeDefined();
+    expect(valor('WEB_ORIGEN')).toBeDefined();
+    expect(JSON.stringify(valor('S3_BUCKET'))).toContain('Archivos');
+    expect(valor('S3_REGION')).toBe('mx-central-1');
+    for (const n of ['S3_ENDPOINT', 'S3_ACCESS_KEY_ID', 'S3_SECRET_ACCESS_KEY']) expect(env.map((e) => e.Name)).not.toContain(n);
+    expect(nombres(def.Secrets)).toEqual(
+      expect.arrayContaining([
+        'DATABASE_URL',
+        'MIGRATOR_DATABASE_URL',
+        'TOKEN_INTERNO',
+        'SMTP_HOST',
+        'SMTP_PORT',
+        'SMTP_REMITENTE',
+        'SMTP_USUARIO',
+        'SMTP_PASSWORD',
+      ]),
+    );
+    for (const n of nombres(def.Secrets)) expect(nombres(def.Environment)).not.toContain(n);
+
+    // Solo s3:GetObject sobre logos/* y kms:Decrypt: el rol de notificaciones no escribe en el bucket.
+    const idRol = idLogico((tareaDe('svc-notificaciones').Properties as Json).TaskRoleArn);
+    const sentencias = Object.values(servicios.findResources('AWS::IAM::Policy'))
+      .filter((p) => JSON.stringify((p.Properties as Json).Roles).includes(idRol))
+      .flatMap((p) => ((p.Properties as Json).PolicyDocument as { Statement: Json[] }).Statement);
+    const deS3 = sentencias.filter((st) => JSON.stringify(st.Action).includes('s3:'));
+    expect(deS3).toHaveLength(1);
+    expect(deS3[0]!.Action).toBe('s3:GetObject');
+    expect(JSON.stringify(deS3[0]!.Resource)).toContain('/logos/*');
+    const deKms = sentencias.filter((st) => JSON.stringify(st.Action).includes('kms:'));
+    expect(deKms).toHaveLength(1);
+    expect(deKms[0]!.Action).toBe('kms:Decrypt');
+  });
+  test('TOKEN_INTERNO es un solo secreto de Secrets Manager que comparten agenda, identidad y notificaciones', () => {
+    const referencias = ['svc-agenda', 'svc-identidad', 'svc-notificaciones'].map((n) => {
+      const s = (contenedor(tareaDe(n)).Secrets as { Name: string; ValueFrom: unknown }[]).find((x) => x.Name === 'TOKEN_INTERNO');
+      expect(s).toBeDefined();
+      return JSON.stringify(s!.ValueFrom);
+    });
+    expect(new Set(referencias).size).toBe(1);
+    // El gateway y web no lo necesitan: el gateway responde 404 a /interno/*.
+    for (const n of ['gateway', 'web']) expect(nombres(contenedor(tareaDe(n)).Secrets)).not.toContain('TOKEN_INTERNO');
+    const conTokenInterno = Object.values(servicios.findResources('AWS::SecretsManager::Secret')).filter(
+      (x) => (x.Properties as Json).Name === 'consultorio/token-interno',
+    );
+    expect(conTokenInterno).toHaveLength(1);
+  });
+  test('notificaciones_db y sus roles quedan documentados como las demás bases', () => {
+    const texto = readFileSync(new URL('../lib/datos.ts', import.meta.url), 'utf8');
+    expect(texto).toMatch(/notificaciones_db/);
+    expect(texto).toMatch(/notificaciones_migrator/);
   });
   test('web: puerto 3000, habla con el gateway por Service Connect y no lleva secretos', () => {
     const def = contenedor(tareaDe('web'));
@@ -349,11 +413,12 @@ describe('ServiciosStack', () => {
       Match.objectLike({ Conditions: [Match.objectLike({ PathPatternConfig: { Values: ['/api/*'] } })] }),
     );
   });
-  test('la estimación de costo de bin/app.ts incluye svc-agenda y web', () => {
+  test('la estimación de costo de bin/app.ts incluye svc-agenda, svc-notificaciones y web', () => {
     const texto = readFileSync(new URL('../bin/app.ts', import.meta.url), 'utf8');
     expect(texto).toMatch(/svc-agenda/);
     expect(texto).toMatch(/\bweb\b/);
-    expect(texto).toMatch(/Secrets Manager \(9 secretos\)/);
+    expect(texto).toMatch(/svc-notificaciones/);
+    expect(texto).toMatch(/Secrets Manager \(12 secretos\)/);
   });
   test('gateway: CONFIAR_EN_PROXY es el CIDR de la VPC y apunta a los servicios por Service Connect', () => {
     const env = contenedor(tareaDe('gateway')).Environment as { Name: string; Value: unknown }[];
@@ -363,12 +428,13 @@ describe('ServiciosStack', () => {
     expect(valor('IDENTIDAD_URL')).toBe('http://svc-identidad:3001');
     expect(valor('AUDITORIA_URL')).toBe('http://svc-auditoria:3003');
     expect(valor('AGENDA_URL')).toBe('http://svc-agenda:3004');
+    expect(valor('NOTIFICACIONES_URL')).toBe('http://svc-notificaciones:3005');
     expect(valor('JWKS_URL')).toBe('http://svc-identidad:3001/.well-known/jwks.json');
   });
   test('secretos de BD, JWT y Better Auth inyectados como Secrets, nunca como Environment', () => {
     const identidad = contenedor(tareaDe('svc-identidad'));
     expect(nombres(identidad.Secrets)).toEqual(
-      expect.arrayContaining(['JWT_PRIVATE_JWK', 'BETTER_AUTH_SECRET', 'DATABASE_URL', 'MIGRATOR_DATABASE_URL']),
+      expect.arrayContaining(['JWT_PRIVATE_JWK', 'BETTER_AUTH_SECRET', 'DATABASE_URL', 'MIGRATOR_DATABASE_URL', 'TOKEN_INTERNO']),
     );
     for (const n of nombres(identidad.Secrets)) expect(nombres(identidad.Environment)).not.toContain(n);
 
@@ -385,13 +451,17 @@ describe('ServiciosStack', () => {
       'consultorio/identidad_migrator',
       'consultorio/auditoria_app',
       'consultorio/auditoria_migrator',
+      'consultorio/notificaciones_app',
+      'consultorio/notificaciones_migrator',
+      'consultorio/token-interno',
+      'consultorio/smtp',
       'consultorio/better-auth-secret',
       'consultorio/jwt-private-jwk',
     ]) {
       servicios.hasResourceProperties('AWS::SecretsManager::Secret', Match.objectLike({ Name, KmsKeyId: Match.anyValue() }));
     }
   });
-  test('NODE_ENV=production en los cinco servicios', () => {
+  test('NODE_ENV=production en los seis servicios', () => {
     for (const d of definicionesDeTarea()) {
       expect(contenedor(d).Environment).toEqual(expect.arrayContaining([{ Name: 'NODE_ENV', Value: 'production' }]));
     }
@@ -416,15 +486,32 @@ describe('aislamiento de red', () => {
   const alb = () => idDeGrupo(red, 'Grupo de seguridad del balanceador');
 
   test('svc-identidad, svc-auditoria y svc-agenda solo admiten ingreso desde el SG del gateway', () => {
-    for (const desc of ['Grupo de seguridad de svc-identidad', 'Grupo de seguridad de svc-auditoria', 'Grupo de seguridad de svc-agenda']) {
+    for (const desc of [
+      'Grupo de seguridad de svc-identidad',
+      'Grupo de seguridad de svc-auditoria',
+      'Grupo de seguridad de svc-agenda',
+      'Grupo de seguridad de svc-notificaciones',
+    ]) {
       const id = idDeGrupo(red, desc);
       const reglas = reglasDeEntrada().filter((r) => r.destino === id);
       expect(reglas.length).toBeGreaterThan(0);
+      // agenda e identidad atienden además las llamadas /interno/* de notificaciones (con TOKEN_INTERNO).
+      const permitidos = [gateway()];
+      if (desc.endsWith('svc-agenda') || desc.endsWith('svc-identidad')) permitidos.push(idDeGrupo(red, 'Grupo de seguridad de svc-notificaciones'));
       for (const r of reglas) {
         expect(r.cidr).toBeUndefined();
-        expect(r.origen).toBe(gateway());
+        expect(permitidos).toContain(r.origen);
       }
     }
+  });
+  test('notificaciones solo la alcanza el gateway; identidad y agenda aceptan además su llamada interna', () => {
+    const notificaciones = idDeGrupo(red, 'Grupo de seguridad de svc-notificaciones');
+    const origenes = (destino: string) => reglasDeEntrada().filter((r) => r.destino === destino).map((r) => r.origen);
+    expect(origenes(notificaciones)).toEqual([gateway()]);
+    expect(origenes(idDeGrupo(red, 'Grupo de seguridad de svc-identidad'))).toContain(notificaciones);
+    expect(origenes(idDeGrupo(red, 'Grupo de seguridad de svc-agenda'))).toContain(notificaciones);
+    // Nada más tiene permiso de hablar con el servicio de notificaciones: ni web ni el balanceador.
+    expect(origenes(idDeGrupo(red, 'Grupo de seguridad de web'))).not.toContain(notificaciones);
   });
   test('el gateway solo admite ingreso desde el balanceador, web y los servicios que leen el JWKS', () => {
     const reglas = reglasDeEntrada().filter((r) => r.destino === gateway());
@@ -434,6 +521,7 @@ describe('aislamiento de red', () => {
       idDeGrupo(red, 'Grupo de seguridad de web'),
       idDeGrupo(red, 'Grupo de seguridad de svc-auditoria'),
       idDeGrupo(red, 'Grupo de seguridad de svc-agenda'),
+      idDeGrupo(red, 'Grupo de seguridad de svc-notificaciones'), // JWKS
     ];
     for (const r of reglas) expect(permitidos).toContain(r.origen);
   });

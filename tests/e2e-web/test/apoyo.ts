@@ -182,7 +182,10 @@ export async function configurarHorarioYTipo(page: Page, nombreMedico: string, t
  * Agenda una cita desde el formulario eligiendo el hueco número `indiceHueco` (0 = el primero) de `fecha`.
  * Devuelve la hora que mostró ese hueco (HH:mm en la zona del consultorio).
  */
-export async function agendarCita(page: Page, o: { fecha: string; paciente: string; indiceHueco?: number }): Promise<string> {
+export async function agendarCita(
+  page: Page,
+  o: { fecha: string; paciente: string; indiceHueco?: number; email?: string },
+): Promise<string> {
   await page.goto('/agenda');
   await page.getByRole('button', { name: 'Nueva cita' }).click();
   const dialogo = page.getByRole('dialog', { name: 'Nueva cita' });
@@ -201,6 +204,7 @@ export async function agendarCita(page: Page, o: { fecha: string; paciente: stri
 
   await dialogo.getByLabel('Nombre del paciente').fill(o.paciente);
   await dialogo.getByLabel('Teléfono').fill('5512345678');
+  if (o.email) await dialogo.getByLabel('Correo (opcional)').fill(o.email);
   await dialogo.getByRole('button', { name: 'Agendar', exact: true }).click();
   await expect(dialogo).toBeHidden();
   return hora;

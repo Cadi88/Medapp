@@ -29,13 +29,13 @@ export function crearApp(opciones: OpcionesApp = {}) {
   const datos = new DatosStack(app, 'Consultorio-Datos', {
     env,
     vpc: red.vpc,
-    sgClientes: [red.sgIdentidad, red.sgAuditoria, red.sgAgenda],
+    sgClientes: [red.sgIdentidad, red.sgAuditoria, red.sgAgenda, red.sgNotificaciones],
   });
   const mensajeria = new MensajeriaStack(app, 'Consultorio-Mensajeria', {
     env,
     vpc: red.vpc,
     namespace: red.namespace,
-    sgClientes: [red.sgIdentidad, red.sgAuditoria, red.sgAgenda],
+    sgClientes: [red.sgIdentidad, red.sgAuditoria, red.sgAgenda, red.sgNotificaciones],
   });
   const servicios = new ServiciosStack(app, 'Consultorio-Servicios', {
     env,
@@ -50,6 +50,7 @@ export function crearApp(opciones: OpcionesApp = {}) {
     sgIdentidad: red.sgIdentidad,
     sgAuditoria: red.sgAuditoria,
     sgAgenda: red.sgAgenda,
+    sgNotificaciones: red.sgNotificaciones,
     sgWeb: red.sgWeb,
     certificadoArn: opciones.certificadoArn ?? contexto('certificadoArn'),
     urlPublica: opciones.urlPublica ?? contexto('urlPublica'),
