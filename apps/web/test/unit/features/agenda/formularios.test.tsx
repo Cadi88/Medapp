@@ -207,6 +207,7 @@ const cita = (extra: Partial<Cita> = {}): Cita => ({
   contacto: { nombre: 'Ana Pérez', telefono: '5551234567', email: 'ana@ejemplo.mx' },
   notas: 'Trae estudios',
   fueraDeHorario: false,
+  pideCambio: false,
   version: 3,
   ...extra,
 });

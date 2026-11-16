@@ -21,6 +21,7 @@ const cita = (extra: Partial<Cita> = {}): Cita => ({
   estado: 'agendada',
   contacto: { nombre: 'Ana Pérez', telefono: '5551234567' },
   fueraDeHorario: false,
+  pideCambio: false,
   version: 1,
   ...extra,
 });

@@ -96,8 +96,9 @@ describe('citas', () => {
   });
 
   test('citaSchema acepta contacto sin email y notas ausentes', () => {
-    const c = { id: U, medicoId: U, tipoCitaId: U, inicio: '2030-01-07T17:00:00.000Z', fin: '2030-01-07T17:30:00.000Z', estado: 'agendada', contacto: { nombre: 'P', telefono: '5555555555' }, fueraDeHorario: false, version: 1 };
+    const c = { id: U, medicoId: U, tipoCitaId: U, inicio: '2030-01-07T17:00:00.000Z', fin: '2030-01-07T17:30:00.000Z', estado: 'agendada', contacto: { nombre: 'P', telefono: '5555555555' }, fueraDeHorario: false, pideCambio: false, version: 1 };
     expect(citaSchema.safeParse(c).success).toBe(true);
+    expect(citaSchema.safeParse({ ...c, pideCambio: undefined }).success).toBe(false);
   });
 });
 

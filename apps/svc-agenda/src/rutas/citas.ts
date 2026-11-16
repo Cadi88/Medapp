@@ -170,8 +170,8 @@ export const citasRutas: FastifyPluginAsync<CitasOpciones> = async (app, { pool,
       await enqueueEvent(
         tx,
         input.estado === 'cancelada'
-          ? CitaCancelada.create({ ...base, data: { citaId: cita.id, medicoId: cita.medicoId, inicio: cita.inicio, fin: cita.fin } })
-          : CitaEstadoCambiado.create({ ...base, data: { citaId: cita.id, medicoId: cita.medicoId, de: actual.estado, a: cita.estado } }),
+          ? CitaCancelada.create({ ...base, data: { citaId: cita.id, medicoId: cita.medicoId, inicio: cita.inicio, fin: cita.fin, origen: 'personal' } })
+          : CitaEstadoCambiado.create({ ...base, data: { citaId: cita.id, medicoId: cita.medicoId, de: actual.estado, a: cita.estado, origen: 'personal' } }),
       );
       return cita;
     });

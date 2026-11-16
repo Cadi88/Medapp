@@ -226,11 +226,11 @@ describe('POST /citas/:id/estado', () => {
     const id = idDe(await crear(600));
     const conf = await estado(id, 1, 'confirmada');
     expect(conf.body).toMatchObject({ estado: 'confirmada', version: 2 });
-    expect((await ultimoEvento('cita.estado_cambiado', id))!.data).toEqual({ citaId: id, medicoId: dr, de: 'agendada', a: 'confirmada' });
+    expect((await ultimoEvento('cita.estado_cambiado', id))!.data).toEqual({ citaId: id, medicoId: dr, de: 'agendada', a: 'confirmada', origen: 'personal' });
     const can = await estado(id, 2, 'cancelada');
     expect(can.body).toMatchObject({ estado: 'cancelada', version: 3 });
     const ev = await ultimoEvento('cita.cancelada', id);
-    expect(ev!.data).toMatchObject({ citaId: id, medicoId: dr });
+    expect(ev!.data).toMatchObject({ citaId: id, medicoId: dr, origen: 'personal' });
     expect(JSON.stringify(ev)).not.toMatch(/telefono|contacto|5555/);
   });
 

@@ -43,6 +43,7 @@ const cita: Cita = {
   estado: 'agendada',
   contacto: { nombre: 'Ana Pérez', telefono: '5551234567' },
   fueraDeHorario: false,
+  pideCambio: false,
   version: 4,
 };
 const RANGO = ['2026-11-12T06:00:00.000Z', '2026-11-13T06:00:00.000Z'] as const;

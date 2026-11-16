@@ -78,6 +78,8 @@ export const citaSchema = z.object({
   contacto: z.object({ nombre: contactoNombre, telefono: contactoTelefono, email: contactoEmail.optional() }),
   notas: notas.optional(),
   fueraDeHorario: z.boolean(),
+  /** El paciente pidió cambiar la cita desde un recordatorio; se limpia al reprogramar. */
+  pideCambio: z.boolean(),
   version: z.number().int().min(1),
 });
 export type Cita = z.infer<typeof citaSchema>;

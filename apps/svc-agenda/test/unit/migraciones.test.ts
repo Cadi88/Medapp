@@ -28,3 +28,10 @@ describe('migración 001_agenda', () => {
     expect(m001).toMatch(/GRANT SELECT, INSERT, UPDATE, DELETE ON [^;]*\bcita\b[^;]* TO "agenda_app"/);
   });
 });
+
+describe('migración 002_pide_cambio', () => {
+  const m002 = readFileSync(fileURLToPath(new URL('../../migrations/002_pide_cambio.sql', import.meta.url)), 'utf8');
+  test('agrega pide_cambio booleano no nulo con false por omisión', () => {
+    expect(m002).toMatch(/ALTER TABLE cita ADD COLUMN pide_cambio boolean NOT NULL DEFAULT false;/);
+  });
+});
