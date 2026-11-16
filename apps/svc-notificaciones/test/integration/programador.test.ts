@@ -47,7 +47,7 @@ beforeEach(async () => {
 });
 
 const programador = () => {
-  const p = iniciarProgramador(ctx, { reloj: () => ahora, intervaloMs: 3_600_000 });
+  const p = iniciarProgramador(ctx, { intervaloMs: 3_600_000 });
   programadores.push(p);
   return p;
 };
@@ -193,6 +193,47 @@ describe('programador automático', () => {
 });
 
 describe('envío inmediato de citas tardías', () => {
+  test('la transacción del handler se revierte en la primera entrega (falla al COMMIT) → tras la reentrega sale exactamente un correo', async () => {
+    const T = uuidv7();
+    await configurar(T, 'sin_revision');
+    const c = nuevaCita('2031-05-02T17:30:00.000Z');
+    n.dobles.citas = [c];
+    ahora = new Date('2031-05-01T20:00:00.000Z');
+    // Falla una sola vez al confirmar (restricción diferida): el handler ya corrió y ya agendó el envío inmediato.
+    await n.migrator.query(`
+      CREATE SEQUENCE fallo_una_vez;
+      CREATE FUNCTION fn_fallo_una_vez() RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER AS $$
+      BEGIN
+        IF nextval('fallo_una_vez') = 1 THEN RAISE EXCEPTION 'fallo simulado al confirmar'; END IF;
+        RETURN NULL;
+      END $$;
+      CREATE CONSTRAINT TRIGGER inbox_falla_una_vez AFTER INSERT ON inbox DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION fn_fallo_una_vez();
+    `);
+    const consumidor = await iniciarConsumidor({ pool: n.appPool, nc: n.nc, identidad: n.puertos.identidad, envio: ctx });
+    try {
+      await jetstream(n.nc).publish(
+        'evt.cita.creada',
+        JSON.stringify(
+          CitaCreada.create({
+            tenantId: T,
+            actorId: null,
+            traceId: 'trace-prueba',
+            data: { citaId: c.citaId, medicoId: c.medicoId, inicio: c.inicio, fin: c.fin, tipoCitaId: uuidv7(), estado: 'agendada', origen: 'recepcion', fueraDeHorario: false },
+          }),
+        ),
+      );
+      const fin = Date.now() + 20_000;
+      while (destinos().length === 0 && Date.now() < fin) await new Promise((r) => setTimeout(r, 100));
+      await new Promise((r) => setTimeout(r, 1500)); // margen para detectar un segundo correo
+      expect(destinos()).toEqual([c.contacto.email]);
+      // Dos confirmaciones intentadas: la primera falló (se revirtió) y la reentrega tuvo éxito.
+      expect((await n.migrator.query<{ last_value: string }>('SELECT last_value FROM fallo_una_vez')).rows[0]?.last_value).toBe('2');
+    } finally {
+      await consumidor.stop();
+      await n.migrator.query('DROP TRIGGER inbox_falla_una_vez ON inbox; DROP FUNCTION fn_fallo_una_vez(); DROP SEQUENCE fallo_una_vez');
+    }
+  });
+
   test('sin_revision, mañana y pasada la hora → sale de inmediato (y una sola vez)', async () => {
     const T = uuidv7();
     await registrar(T);

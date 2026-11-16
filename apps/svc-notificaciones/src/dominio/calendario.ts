@@ -61,3 +61,16 @@ export function fechaYHoraLocal(inicioIso: string, zona: string): { fecha: strin
   if (!local.isValid) throw new Error(`No se pudo calcular la fecha de la cita (${local.invalidReason ?? 'fecha inválida'})`);
   return { fecha: local.toFormat("cccc d 'de' LLLL"), hora: local.toFormat('HH:mm') };
 }
+
+/**
+ * Envío inmediato de una cita tardía: solo en sin_revision, si la cita cae mañana (zona del consultorio) y ya pasó la hora
+ * de envío de hoy (si no, la corrida del día la incluirá). Devuelve la fecha local de la cita, o null si no aplica.
+ */
+export function debeEnviarInmediato(ahora: DateTime, zona: string, modo: ModoRecordatorios, horaEnvio: string, inicioIso: string): { fechaCita: string } | null {
+  if (modo !== 'sin_revision') return null;
+  // Sin corrida previa, corridaPendiente solo dice si ya pasó la hora de envío de hoy y cuál es la fecha de mañana.
+  const hoy = corridaPendiente(ahora, zona, horaEnvio, null);
+  if (!hoy) return null;
+  const fechaCita = fechaCitaLocal(inicioIso, zona);
+  return fechaCita === hoy.fechaCitas ? { fechaCita } : null;
+}

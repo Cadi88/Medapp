@@ -55,7 +55,7 @@ const puertos = {
 const reloj = () => new Date();
 const ctxEnvio = { pool, puertos, reloj, webOrigen: env.webOrigen, logger };
 const consumidor = await iniciarConsumidor({ pool, nc, identidad: puertos.identidad, logger, envio: ctxEnvio });
-const programador = iniciarProgramador(ctxEnvio, { reloj });
+const programador = iniciarProgramador(ctxEnvio);
 const publicador = startOutboxPublisher({ pool, nc, onError: (err) => logger.error({ err }, 'publicador del outbox') });
 const app = await buildServer({ pool, jwksUrl: env.jwksUrl, tokenInterno: env.tokenInterno, webOrigen: env.webOrigen, reloj, puertos });
 

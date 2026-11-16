@@ -1,6 +1,6 @@
 import { DateTime } from 'luxon';
 import { describe, expect, test } from 'vitest';
-import { corridaPendiente, debeEnviar, fechaCitaLocal, fechaDeEnvio, fechaYHoraLocal } from '../../src/dominio/calendario.js';
+import { corridaPendiente, debeEnviar, debeEnviarInmediato, fechaCitaLocal, fechaDeEnvio, fechaYHoraLocal } from '../../src/dominio/calendario.js';
 
 const TIJUANA = 'America/Tijuana';
 const en = (iso: string, zona: string) => DateTime.fromISO(iso, { zone: zona });
@@ -108,5 +108,26 @@ describe('debeEnviar', () => {
   test.each(['enviado', 'anulado', 'fallido'] as const)('nunca %s', (estado) => {
     expect(debeEnviar({ estado }, 'con_revision')).toBe(false);
     expect(debeEnviar({ estado }, 'sin_revision')).toBe(false);
+  });
+});
+
+describe('debeEnviarInmediato', () => {
+  const ahora = en('2031-05-01T10:00:00', 'America/Mexico_City');
+  const mananaInicio = '2031-05-02T17:30:00.000Z';
+  test('sin_revision, cita de mañana y hora de envío ya pasada → aplica con la fecha local', () => {
+    expect(debeEnviarInmediato(ahora, 'America/Mexico_City', 'sin_revision', '10:00:00', mananaInicio)).toEqual({ fechaCita: '2031-05-02' });
+  });
+  test('con_revision nunca', () => {
+    expect(debeEnviarInmediato(ahora, 'America/Mexico_City', 'con_revision', '10:00:00', mananaInicio)).toBeNull();
+  });
+  test('antes de la hora de envío lo incluirá la corrida', () => {
+    expect(debeEnviarInmediato(en('2031-05-01T09:59:00', 'America/Mexico_City'), 'America/Mexico_City', 'sin_revision', '10:00:00', mananaInicio)).toBeNull();
+  });
+  test('una cita que no es de mañana no aplica (hoy ni pasado mañana)', () => {
+    expect(debeEnviarInmediato(ahora, 'America/Mexico_City', 'sin_revision', '10:00:00', '2031-05-01T22:00:00.000Z')).toBeNull();
+    expect(debeEnviarInmediato(ahora, 'America/Mexico_City', 'sin_revision', '10:00:00', '2031-05-03T17:30:00.000Z')).toBeNull();
+  });
+  test('zona u hora inválidas no aplican', () => {
+    expect(debeEnviarInmediato(ahora, 'No/Existe', 'sin_revision', '10:00:00', mananaInicio)).toBeNull();
   });
 });

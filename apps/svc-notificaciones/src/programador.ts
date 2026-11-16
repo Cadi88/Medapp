@@ -1,17 +1,17 @@
 import { withTenant } from '@consultorio/platform';
 import { DateTime } from 'luxon';
+import type pg from 'pg';
 import { leerConfig } from './datos/config.js';
 import { listarConsultorios, leerZonaHoraria } from './datos/consultorios.js';
 import { registrarCorrida, ultimaCorrida } from './datos/corridas.js';
 import { listarEnviosCorreoDeFecha } from './datos/envios.js';
-import { corridaPendiente, debeEnviar, fechaCitaLocal } from './dominio/calendario.js';
+import { corridaPendiente, debeEnviar, debeEnviarInmediato } from './dominio/calendario.js';
 import { asegurarEnvios, enviarCorreo, type ContextoEnvio } from './envio.js';
 
 /** Candado de sesión (`pg_try_advisory_lock`) propio de este servicio: una sola instancia recorre los consultorios a la vez. */
 export const LOCK_PROGRAMADOR = '7305001';
 
 export interface OpcionesProgramador {
-  reloj: () => Date;
   intervaloMs?: number;
 }
 
@@ -21,9 +21,9 @@ export interface OpcionesProgramador {
  * la vuelta siguiente lo reintenta). Un fallo transitorio del correo (aún con intentos) también deja la corrida sin registrar;
  * al agotar los 3 intentos el envío queda `fallido` y la corrida se registra.
  */
-async function correrConsultorio(ctx: ContextoEnvio, reloj: () => Date, tenantId: string, zona: string): Promise<void> {
+async function correrConsultorio(ctx: ContextoEnvio, tenantId: string, zona: string): Promise<void> {
   const { config, ultima } = await withTenant(ctx.pool, tenantId, async (tx) => ({ config: await leerConfig(tx, tenantId), ultima: await ultimaCorrida(tx, tenantId) }));
-  const pendiente = corridaPendiente(DateTime.fromJSDate(reloj()), zona, config.horaEnvio, ultima);
+  const pendiente = corridaPendiente(DateTime.fromJSDate(ctx.reloj()), zona, config.horaEnvio, ultima);
   if (!pendiente) return;
   const { fechaEnvio, fechaCitas } = pendiente;
   await asegurarEnvios(ctx, tenantId, fechaCitas, fechaCitas);
@@ -38,17 +38,18 @@ async function correrConsultorio(ctx: ContextoEnvio, reloj: () => Date, tenantId
 }
 
 /** Una vuelta: toma el candado en un cliente dedicado (sin transacción abierta durante HTTP/SMTP), recorre los consultorios y lo suelta. */
-async function vuelta(ctx: ContextoEnvio, reloj: () => Date): Promise<void> {
-  const cliente = await ctx.pool.connect();
+async function vuelta(ctx: ContextoEnvio): Promise<void> {
+  let cliente: pg.PoolClient | undefined;
   let candado = false;
   let descartar = false;
   try {
+    cliente = await ctx.pool.connect();
     const r = await cliente.query<{ ok: boolean }>('SELECT pg_try_advisory_lock($1) AS ok', [LOCK_PROGRAMADOR]);
     candado = r.rows[0]?.ok === true;
     if (!candado) return;
     for (const { tenantId, zonaHoraria } of await listarConsultorios(cliente)) {
       try {
-        await correrConsultorio(ctx, reloj, tenantId, zonaHoraria);
+        await correrConsultorio(ctx, tenantId, zonaHoraria);
       } catch (err) {
         // Un consultorio con problemas (agenda caída, zona inválida…) no detiene a los demás; se reintenta en la vuelta siguiente.
         ctx.logger?.error({ err, tenantId }, 'falló la corrida automática del consultorio');
@@ -57,7 +58,7 @@ async function vuelta(ctx: ContextoEnvio, reloj: () => Date): Promise<void> {
   } catch (err) {
     ctx.logger?.error({ err }, 'falló la vuelta del programador');
   } finally {
-    if (candado) {
+    if (candado && cliente) {
       try {
         await cliente.query('SELECT pg_advisory_unlock($1)', [LOCK_PROGRAMADOR]);
       } catch (err) {
@@ -66,7 +67,7 @@ async function vuelta(ctx: ContextoEnvio, reloj: () => Date): Promise<void> {
         ctx.logger?.error({ err }, 'no se pudo soltar el candado del programador');
       }
     }
-    cliente.release(descartar ? true : undefined);
+    cliente?.release(descartar ? true : undefined);
   }
 }
 
@@ -75,15 +76,18 @@ async function vuelta(ctx: ContextoEnvio, reloj: () => Date): Promise<void> {
  * (candado de sesión) y, aun así, `enviarCorreo` reclama cada envío de forma atómica: el candado es una capa extra.
  * `correrAhora` fuerza una vuelta (pruebas); si ya hay una en curso en esta instancia, espera a esa.
  */
-export function iniciarProgramador(ctx: ContextoEnvio, o: OpcionesProgramador): { detener(): Promise<void>; correrAhora(): Promise<void> } {
+export function iniciarProgramador(ctx: ContextoEnvio, o: OpcionesProgramador = {}): { detener(): Promise<void>; correrAhora(): Promise<void> } {
   let enCurso: Promise<void> | null = null;
   const correrAhora = (): Promise<void> => {
-    enCurso ??= vuelta(ctx, o.reloj).finally(() => {
+    enCurso ??= vuelta(ctx).finally(() => {
       enCurso = null;
     });
     return enCurso;
   };
-  const temporizador = setInterval(() => void correrAhora(), o.intervaloMs ?? 60_000);
+  const temporizador = setInterval(() => {
+    // Una vuelta nunca debe tumbar el proceso con un rechazo sin manejar.
+    correrAhora().catch((err: unknown) => ctx.logger?.error({ err }, 'falló la vuelta del programador'));
+  }, o.intervaloMs ?? 60_000);
   return {
     correrAhora,
     async detener() {
@@ -99,12 +103,10 @@ export function iniciarProgramador(ctx: ContextoEnvio, o: OpcionesProgramador): 
  */
 export async function enviarInmediato(ctx: ContextoEnvio, tenantId: string, citaId: string, inicio: string): Promise<void> {
   const { zona, config } = await withTenant(ctx.pool, tenantId, async (tx) => ({ zona: await leerZonaHoraria(tx, tenantId), config: await leerConfig(tx, tenantId) }));
-  if (!zona || config.modo !== 'sin_revision') return;
-  // Sin corrida previa: `corridaPendiente` solo dice si ya pasó la hora de envío de hoy y cuál es la fecha de mañana.
-  const hoy = corridaPendiente(DateTime.fromJSDate(ctx.reloj()), zona, config.horaEnvio, null);
-  if (!hoy) return;
-  const fecha = fechaCitaLocal(inicio, zona);
-  if (fecha !== hoy.fechaCitas) return;
+  if (!zona) return;
+  const r = debeEnviarInmediato(DateTime.fromJSDate(ctx.reloj()), zona, config.modo, config.horaEnvio, inicio);
+  if (!r) return;
+  const fecha = r.fechaCita;
   await asegurarEnvios(ctx, tenantId, fecha, fecha);
   const envio = (await withTenant(ctx.pool, tenantId, (tx) => listarEnviosCorreoDeFecha(tx, tenantId, fecha))).find((e) => e.citaId === citaId);
   if (envio) await enviarCorreo(ctx, tenantId, envio.id);
