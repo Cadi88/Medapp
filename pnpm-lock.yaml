@@ -184,6 +184,49 @@ importers:
         specifier: ^13.6.0
         version: 13.6.0
 
+  apps/svc-notificaciones:
+    dependencies:
+      '@consultorio/contracts':
+        specifier: workspace:*
+        version: link:../../packages/contracts
+      '@consultorio/platform':
+        specifier: workspace:*
+        version: link:../../packages/platform
+      '@nats-io/transport-node':
+        specifier: ^3.4.0
+        version: 3.4.0
+      fastify:
+        specifier: ^5.12.8
+        version: 5.12.8
+      luxon:
+        specifier: ^3.7.2
+        version: 3.7.2
+      pg:
+        specifier: ^8.13.0
+        version: 8.23.1
+      pino:
+        specifier: ^10.4.0
+        version: 10.4.0
+      uuidv7:
+        specifier: ^1.2.1
+        version: 1.2.1
+      zod:
+        specifier: ^4.6.7
+        version: 4.6.7
+    devDependencies:
+      '@nats-io/jetstream':
+        specifier: ^3.4.0
+        version: 3.4.0
+      '@types/luxon':
+        specifier: ^3.7.1
+        version: 3.7.6
+      '@types/node':
+        specifier: ^24.0.0
+        version: 24.19.2
+      '@types/pg':
+        specifier: ^8.11.0
+        version: 8.23.1
+
   apps/web:
     dependencies:
       '@consultorio/contracts':

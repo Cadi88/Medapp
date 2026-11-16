@@ -41,3 +41,17 @@ ALTER DEFAULT PRIVILEGES FOR ROLE agenda_migrator IN SCHEMA public
 ALTER DEFAULT PRIVILEGES FOR ROLE agenda_migrator IN SCHEMA public
   GRANT USAGE, SELECT ON SEQUENCES TO agenda_app;
 \connect postgres
+
+-- ===== Servicio: notificaciones =====
+CREATE ROLE notificaciones_migrator LOGIN PASSWORD :'notificaciones_migrator_pw';
+CREATE ROLE notificaciones_app LOGIN NOBYPASSRLS NOSUPERUSER PASSWORD :'notificaciones_app_pw';
+CREATE DATABASE notificaciones_db OWNER notificaciones_migrator;
+REVOKE ALL ON DATABASE notificaciones_db FROM PUBLIC;
+GRANT CONNECT ON DATABASE notificaciones_db TO notificaciones_app;
+\connect notificaciones_db
+GRANT USAGE ON SCHEMA public TO notificaciones_app;
+ALTER DEFAULT PRIVILEGES FOR ROLE notificaciones_migrator IN SCHEMA public
+  GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO notificaciones_app;
+ALTER DEFAULT PRIVILEGES FOR ROLE notificaciones_migrator IN SCHEMA public
+  GRANT USAGE, SELECT ON SEQUENCES TO notificaciones_app;
+\connect postgres
