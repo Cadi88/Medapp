@@ -27,7 +27,7 @@ export const PLANTILLAS_POR_OMISION: Plantillas = {
 };
 
 const ESCAPES: Record<string, string> = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
-const escaparHtml = (s: string): string => s.replace(/[&<>"']/g, (c) => ESCAPES[c]!);
+export const escaparHtml = (s: string): string => s.replace(/[&<>"']/g, (c) => ESCAPES[c]!);
 
 /**
  * Sustituye `{campo}` por su valor en una sola pasada (un valor con llaves no se vuelve a sustituir).

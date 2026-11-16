@@ -14,8 +14,8 @@ export interface ServerOptions {
   tokenInterno: string;
   /** Origen público del sitio web (enlaces de los correos). */
   webOrigen: string;
-  /** Agenda, identidad, correo y almacén; las rutas y el programador (siguientes tareas) los usan; opcional hasta entonces. */
-  puertos?: Puertos;
+  /** Agenda, identidad, correo y almacén; las rutas y el programador (siguientes tareas) los usan. */
+  puertos: Puertos;
 }
 
 export async function buildServer(o: ServerOptions): Promise<FastifyInstance> {

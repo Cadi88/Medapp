@@ -6,3 +6,5 @@ export { startTestJwks } from './jwks.js';
 export type { TestJwks, SignOptions } from './jwks.js';
 export { startMinio } from './minio.js';
 export type { TestMinio } from './minio.js';
+export { startMailpit } from './mailpit.js';
+export type { TestMailpit, CorreoRecibido } from './mailpit.js';

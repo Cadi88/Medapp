@@ -1,6 +1,6 @@
 import { DateTime } from 'luxon';
 import { describe, expect, test } from 'vitest';
-import { corridaPendiente, debeEnviar, fechaCitaLocal, fechaDeEnvio } from '../../src/dominio/calendario.js';
+import { corridaPendiente, debeEnviar, fechaCitaLocal, fechaDeEnvio, fechaYHoraLocal } from '../../src/dominio/calendario.js';
 
 const TIJUANA = 'America/Tijuana';
 const en = (iso: string, zona: string) => DateTime.fromISO(iso, { zone: zona });
@@ -9,6 +9,10 @@ describe('fechaCitaLocal / fechaDeEnvio', () => {
   test('usa la fecha local de la zona, no la UTC', () => {
     expect(fechaCitaLocal('2026-11-17T03:00:00Z', TIJUANA)).toBe('2026-11-16');
     expect(fechaCitaLocal('2026-11-17T03:00:00Z', 'UTC')).toBe('2026-11-17');
+  });
+  test('R4: zona inválida o ISO inválido lanzan un error claro (nunca una fecha nula disfrazada)', () => {
+    expect(() => fechaCitaLocal('2026-11-17T03:00:00Z', 'No/Existe')).toThrow(/fecha de la cita/i);
+    expect(() => fechaCitaLocal('no-es-iso', TIJUANA)).toThrow(/fecha de la cita/i);
   });
   test('fechaDeEnvio es el día anterior (cruza mes y año)', () => {
     expect(fechaDeEnvio('2026-11-16')).toBe('2026-11-15');
@@ -43,6 +47,40 @@ describe('corridaPendiente', () => {
   });
   test('acepta hora_envio con segundos (time de Postgres)', () => {
     expect(corridaPendiente(en('2026-11-14T10:05:00', TIJUANA), TIJUANA, '10:00:00', null)).not.toBeNull();
+  });
+});
+
+describe('corridaPendiente con entradas inválidas (R4)', () => {
+  const ahora = en('2026-11-14T11:00:00', TIJUANA);
+  test('zona inválida → null', () => {
+    expect(corridaPendiente(ahora, 'No/Existe', '10:00', null)).toBeNull();
+  });
+  test('instante inválido → null', () => {
+    expect(corridaPendiente(DateTime.fromISO('basura'), TIJUANA, '10:00', null)).toBeNull();
+  });
+  test.each(['', 'diez', '25:00', '10:61', '10', '10:00:99', '1000'])('horaEnvio mal formada %j → null', (hora) => {
+    expect(corridaPendiente(ahora, TIJUANA, hora, null)).toBeNull();
+  });
+});
+
+describe('corridaPendiente en el día del cambio de horario (R4)', () => {
+  // America/Tijuana retrocede el 2026-11-01 a las 02:00 PDT → 01:00 PST: la hora 01:30 ocurre dos veces.
+  test('horaEnvio 01:30: antes de la primera ocurrencia → null; en la primera y en la repetida → corrida de ese día', () => {
+    const esperado = { fechaEnvio: '2026-11-01', fechaCitas: '2026-11-02' };
+    expect(corridaPendiente(DateTime.fromISO('2026-11-01T08:29:00Z'), TIJUANA, '01:30', null)).toBeNull(); // 01:29 PDT
+    expect(corridaPendiente(DateTime.fromISO('2026-11-01T08:30:00Z'), TIJUANA, '01:30', null)).toEqual(esperado); // 01:30 PDT
+    expect(corridaPendiente(DateTime.fromISO('2026-11-01T09:45:00Z'), TIJUANA, '01:30', null)).toEqual(esperado); // 01:45 PST (repetida)
+    expect(corridaPendiente(DateTime.fromISO('2026-11-01T09:45:00Z'), TIJUANA, '01:30', '2026-11-01')).toBeNull(); // ya corrió
+  });
+});
+
+describe('fechaYHoraLocal', () => {
+  test('fecha y hora en español de la zona del consultorio', () => {
+    expect(fechaYHoraLocal('2026-11-17T03:00:00Z', TIJUANA)).toEqual({ fecha: 'lunes 16 de noviembre', hora: '19:00' });
+  });
+  test('lanza ante zona o instante inválidos', () => {
+    expect(() => fechaYHoraLocal('2026-11-17T03:00:00Z', 'No/Existe')).toThrow(/fecha de la cita/i);
+    expect(() => fechaYHoraLocal('basura', TIJUANA)).toThrow(/fecha de la cita/i);
   });
 });
 

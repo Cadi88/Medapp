@@ -1,6 +1,10 @@
 import { fileURLToPath } from 'node:url';
 import { connect } from '@nats-io/transport-node';
-import { createLogger, createPool, ensureStreams, initTelemetry, runMigrations, shutdownTelemetry, startOutboxPublisher } from '@consultorio/platform';
+import { configAlmacenDesdeEnv, crearAlmacenS3, createLogger, createPool, ensureStreams, initTelemetry, runMigrations, shutdownTelemetry, startOutboxPublisher } from '@consultorio/platform';
+import { iniciarConsumidor } from './consumidor.js';
+import { crearCanalSmtp } from './correo/smtp.js';
+import { crearClienteAgenda } from './externos/agenda.js';
+import { crearClienteIdentidad } from './externos/identidad.js';
 import { buildServer } from './server.js';
 
 function requerida(nombre: string): string {
@@ -10,7 +14,6 @@ function requerida(nombre: string): string {
 }
 
 // Única lectura de variables de entorno del servicio (la telemetría OTEL la lee initTelemetry).
-// AGENDA_URL, IDENTIDAD_URL, SMTP_* y S3_* se leen en las siguientes tareas (clientes internos, correo y almacén).
 const env = {
   port: Number(process.env.PORT ?? 3005),
   databaseUrl: requerida('DATABASE_URL'),
@@ -19,6 +22,14 @@ const env = {
   jwksUrl: requerida('JWKS_URL'),
   tokenInterno: requerida('TOKEN_INTERNO'),
   webOrigen: process.env.WEB_ORIGEN ?? 'http://localhost:3000',
+  agendaUrl: requerida('AGENDA_URL'),
+  identidadUrl: requerida('IDENTIDAD_URL'),
+  smtpHost: requerida('SMTP_HOST'),
+  smtpPort: Number(process.env.SMTP_PORT ?? 587),
+  smtpUsuario: process.env.SMTP_USUARIO || undefined,
+  smtpPassword: process.env.SMTP_PASSWORD || undefined,
+  smtpRemitente: requerida('SMTP_REMITENTE'),
+  almacen: configAlmacenDesdeEnv(process.env),
 };
 if (env.tokenInterno.length < 32) throw new Error('TOKEN_INTERNO debe tener al menos 32 caracteres');
 
@@ -29,8 +40,20 @@ await runMigrations(env.migratorUrl, fileURLToPath(new URL('../migrations', impo
 const pool = createPool(env.databaseUrl, { logger });
 const nc = await connect({ servers: env.natsUrl });
 await ensureStreams(nc);
+const puertos = {
+  agenda: crearClienteAgenda(env.agendaUrl, env.tokenInterno),
+  identidad: crearClienteIdentidad(env.identidadUrl, env.tokenInterno),
+  correo: crearCanalSmtp({
+    host: env.smtpHost,
+    puerto: env.smtpPort,
+    remitente: env.smtpRemitente,
+    ...(env.smtpUsuario ? { usuario: env.smtpUsuario, ...(env.smtpPassword ? { password: env.smtpPassword } : {}) } : {}),
+  }),
+  almacen: crearAlmacenS3(env.almacen),
+};
+const consumidor = await iniciarConsumidor({ pool, nc, identidad: puertos.identidad, logger });
 const publicador = startOutboxPublisher({ pool, nc, onError: (err) => logger.error({ err }, 'publicador del outbox') });
-const app = await buildServer({ pool, jwksUrl: env.jwksUrl, tokenInterno: env.tokenInterno, webOrigen: env.webOrigen, reloj: () => new Date() });
+const app = await buildServer({ pool, jwksUrl: env.jwksUrl, tokenInterno: env.tokenInterno, webOrigen: env.webOrigen, reloj: () => new Date(), puertos });
 
 let apagando = false;
 const apagar = async (): Promise<void> => {
@@ -39,6 +62,7 @@ const apagar = async (): Promise<void> => {
   // Cada paso es independiente: un fallo se registra y no impide cerrar el resto.
   const pasos: [string, () => Promise<unknown>][] = [
     ['servidor HTTP', () => app.close()],
+    ['consumidor', () => consumidor.stop()],
     ['publicador del outbox', () => publicador.stop()],
     ['NATS', () => nc.drain()],
     ['pool', () => pool.end()],
