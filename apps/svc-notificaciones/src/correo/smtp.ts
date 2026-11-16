@@ -17,7 +17,8 @@ export function crearCanalSmtp(c: ConfigSmtp): CanalCorreo {
     host: c.host,
     port: c.puerto,
     secure: c.puerto === 465,
-    ...(c.usuario ? { auth: { user: c.usuario, pass: c.password ?? '' } } : {}),
+    // Con credenciales nunca viajan en claro: STARTTLS obligatorio salvo TLS implícito (465).
+    ...(c.usuario ? { auth: { user: c.usuario, pass: c.password ?? '' }, ...(c.puerto === 465 ? {} : { requireTLS: true }) } : {}),
     connectionTimeout: 10_000,
     greetingTimeout: 30_000,
     socketTimeout: 30_000,

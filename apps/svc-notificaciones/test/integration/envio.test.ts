@@ -67,7 +67,7 @@ describe('enviarCorreo', () => {
     const c = nuevaCita();
     n.dobles.citas = [c];
     const pendiente = await crearEnvio(T, c, 'pendiente');
-    expect(await enviarCorreo(ctx, T, pendiente)).toBe('omitido');
+    expect((await enviarCorreo(ctx, T, pendiente)).resultado).toBe('omitido');
     expect(await correosA(c.contacto.email!)).toEqual([]);
 
     const aprobado = uuidv7();
@@ -76,7 +76,7 @@ describe('enviarCorreo', () => {
       await tx.query("INSERT INTO envio (id, tenant_id, cita_id, fecha_cita, canal, estado) VALUES ($1, $2, $3, '2031-05-02', 'correo', 'aprobado')", [aprobado, T, c.citaId]);
     });
     const actor = uuidv7();
-    expect(await enviarCorreo(ctx, T, aprobado, actor)).toBe('enviado');
+    expect((await enviarCorreo(ctx, T, aprobado, actor)).resultado).toBe('enviado');
 
     const [correo, ...resto] = await correosA(c.contacto.email!);
     expect(resto).toEqual([]);
@@ -99,7 +99,7 @@ describe('enviarCorreo', () => {
     const c = nuevaCita();
     n.dobles.citas = [c];
     const id = await crearEnvio(T, c, 'pendiente');
-    expect(await enviarCorreo(ctx, T, id)).toBe('enviado');
+    expect((await enviarCorreo(ctx, T, id)).resultado).toBe('enviado');
     expect((await correosA(c.contacto.email!))[0]?.asunto).toBe('Cita con Dra. Pérez');
     expect((await leerEnvio(T, id)).enviado_por).toBeNull();
   });
@@ -109,9 +109,9 @@ describe('enviarCorreo', () => {
     const c = nuevaCita();
     n.dobles.citas = [c];
     const id = await crearEnvio(T, c, 'aprobado');
-    expect(await enviarCorreo(ctx, T, id)).toBe('enviado');
+    expect((await enviarCorreo(ctx, T, id)).resultado).toBe('enviado');
     const hash = (await leerEnvio(T, id)).token_hash;
-    expect(await enviarCorreo(ctx, T, id)).toBe('omitido');
+    expect((await enviarCorreo(ctx, T, id)).resultado).toBe('omitido');
     expect(await correosA(c.contacto.email!)).toHaveLength(1);
     expect((await leerEnvio(T, id)).token_hash).toBe(hash);
   });
@@ -122,12 +122,12 @@ describe('enviarCorreo', () => {
     n.dobles.citas = [c];
     const id = await crearEnvio(T, c, 'aprobado');
     const caido = { ...ctx, puertos: { ...ctx.puertos, correo: crearCanalSmtp({ host: '127.0.0.1', puerto: 1, remitente: 'x@consultorio.test' }) } };
-    expect(await enviarCorreo(caido, T, id)).toBe('fallido');
-    expect(await leerEnvio(T, id)).toMatchObject({ estado: 'aprobado', intentos: 1, token_hash: null });
-    expect(await enviarCorreo(caido, T, id)).toBe('fallido');
-    expect(await enviarCorreo(caido, T, id)).toBe('fallido');
+    expect(await enviarCorreo(caido, T, id)).toEqual({ resultado: 'fallido', estado: 'aprobado', intentos: 1 });
+    expect(await leerEnvio(T, id)).toMatchObject({ estado: 'aprobado', intentos: 1, token_hash: null, reclamado_en: null });
+    expect((await enviarCorreo(caido, T, id)).resultado).toBe('fallido');
+    expect(await enviarCorreo(caido, T, id)).toEqual({ resultado: 'fallido', estado: 'fallido', intentos: 3 });
     expect(await leerEnvio(T, id)).toMatchObject({ estado: 'fallido', intentos: 3, token_hash: null });
-    expect(await enviarCorreo(ctx, T, id)).toBe('omitido');
+    expect((await enviarCorreo(ctx, T, id)).resultado).toBe('omitido');
     expect(await correosA(c.contacto.email!)).toEqual([]);
   });
 
@@ -138,7 +138,7 @@ describe('enviarCorreo', () => {
     const id = await crearEnvio(T, c, 'aprobado');
     n.dobles.fallaCorreo = new Error('boom');
     try {
-      expect(await enviarCorreo({ ...ctx, puertos: n.puertos }, T, id)).toBe('fallido');
+      expect((await enviarCorreo({ ...ctx, puertos: n.puertos }, T, id)).resultado).toBe('fallido');
     } finally {
       n.dobles.fallaCorreo = null;
     }
@@ -155,7 +155,7 @@ describe('enviarCorreo', () => {
     const filas = await withTenant(n.appPool, T, async (tx) => (await tx.query('SELECT cita_id FROM envio')).rows);
     expect(filas).toEqual([{ cita_id: con.citaId }]);
     const id = await crearEnvio(T, sin, 'aprobado');
-    expect(await enviarCorreo(ctx, T, id)).toBe('omitido');
+    expect((await enviarCorreo(ctx, T, id)).resultado).toBe('omitido');
     expect((await leerEnvio(T, id)).estado).toBe('aprobado');
   });
 
@@ -164,8 +164,8 @@ describe('enviarCorreo', () => {
     const c = nuevaCita();
     n.dobles.citas = [];
     const id = await crearEnvio(T, c, 'aprobado');
-    expect(await enviarCorreo(ctx, T, id)).toBe('omitido');
-    expect(await enviarCorreo(ctx, T, uuidv7())).toBe('omitido');
+    expect((await enviarCorreo(ctx, T, id)).resultado).toBe('omitido');
+    expect((await enviarCorreo(ctx, T, uuidv7())).resultado).toBe('omitido');
   });
 
   test('el logo del consultorio viaja como adjunto en línea cuando existe en el almacén', async () => {
@@ -175,11 +175,85 @@ describe('enviarCorreo', () => {
     n.dobles.consultorio = { ...n.dobles.consultorio, logoKey: `logos/${T}/a.png` };
     n.dobles.logos.set(`logos/${T}/a.png`, { bytes: new Uint8Array([137, 80, 78, 71]), tipo: 'image/png' });
     try {
-      expect(await enviarCorreo(ctx, T, await crearEnvio(T, c, 'aprobado'))).toBe('enviado');
+      expect((await enviarCorreo(ctx, T, await crearEnvio(T, c, 'aprobado'))).resultado).toBe('enviado');
       expect((await correosA(c.contacto.email!))[0]?.html).toContain('cid:logo');
     } finally {
       n.dobles.consultorio = { ...n.dobles.consultorio, logoKey: null };
     }
+  });
+
+  test('Importante 1: dos envíos simultáneos del mismo envío → un solo correo y el hash guardado es el del enlace de ese correo', async () => {
+    const T = uuidv7();
+    const c = nuevaCita();
+    n.dobles.citas = [c];
+    const id = await crearEnvio(T, c, 'aprobado');
+    const resultados = await Promise.all([enviarCorreo(ctx, T, id), enviarCorreo(ctx, T, id), enviarCorreo(ctx, T, id)]);
+    expect(resultados.map((r) => r.resultado).sort()).toEqual(['enviado', 'omitido', 'omitido']);
+    const correos = await correosA(c.contacto.email!);
+    expect(correos).toHaveLength(1);
+    const token = /\/r\/([\w-]{43})\?accion=confirma/.exec(correos[0]!.html)?.[1];
+    expect(token).toBeDefined();
+    expect(await leerEnvio(T, id)).toMatchObject({ estado: 'enviado', token_hash: hashDeToken(token!), reclamado_en: null });
+  });
+
+  test('un reclamo vigente de otro impide enviar; uno abandonado (> 5 min) puede retomarse', async () => {
+    const T = uuidv7();
+    const c = nuevaCita();
+    n.dobles.citas = [c];
+    const id = await crearEnvio(T, c, 'aprobado');
+    const reclamar = (intervalo: string) =>
+      withTenant(n.appPool, T, (tx) => tx.query(`UPDATE envio SET reclamado_en = now() - interval '${intervalo}', token_hash = 'ajeno' WHERE id = $1`, [id]));
+    await reclamar('1 minute');
+    expect((await enviarCorreo(ctx, T, id)).resultado).toBe('omitido');
+    expect(await correosA(c.contacto.email!)).toEqual([]);
+    await reclamar('10 minutes');
+    expect((await enviarCorreo(ctx, T, id)).resultado).toBe('enviado');
+    expect(await correosA(c.contacto.email!)).toHaveLength(1);
+  });
+
+  test('R6: un envío anulado mientras sale el correo no se pisa a enviado ni a fallido', async () => {
+    const T = uuidv7();
+    const anular = (id: string) => withTenant(n.appPool, T, (tx) => tx.query("UPDATE envio SET estado = 'anulado', token_hash = NULL WHERE id = $1", [id]));
+    const c1 = nuevaCita();
+    const c2 = nuevaCita();
+    n.dobles.citas = [c1, c2];
+    const id1 = await crearEnvio(T, c1, 'aprobado');
+    const id2 = await crearEnvio(T, c2, 'aprobado');
+    const anulaYEnvia = {
+      enviar: async () => {
+        await anular(id1);
+      },
+    };
+    expect(await enviarCorreo({ ...ctx, puertos: { ...ctx.puertos, correo: anulaYEnvia } }, T, id1)).toEqual({ resultado: 'enviado', estado: 'anulado', intentos: 0 });
+    expect((await leerEnvio(T, id1)).estado).toBe('anulado');
+    const anulaYFalla = {
+      enviar: async () => {
+        await anular(id2);
+        throw new Error('caído');
+      },
+    };
+    expect((await enviarCorreo({ ...ctx, puertos: { ...ctx.puertos, correo: anulaYFalla } }, T, id2)).resultado).toBe('fallido');
+    expect(await leerEnvio(T, id2)).toMatchObject({ estado: 'anulado', intentos: 0 });
+  });
+
+  test('si el almacén falla al leer el logo el correo sale sin logo y se avisa con ids', async () => {
+    const T = uuidv7();
+    const c = nuevaCita();
+    n.dobles.citas = [c];
+    n.dobles.consultorio = { ...n.dobles.consultorio, logoKey: `logos/${T}/roto.png` };
+    const id = await crearEnvio(T, c, 'aprobado');
+    try {
+      const almacen = {
+        leer: async () => {
+          throw new Error('S3 caído');
+        },
+      };
+      expect((await enviarCorreo({ ...ctx, puertos: { ...ctx.puertos, almacen } }, T, id)).resultado).toBe('enviado');
+    } finally {
+      n.dobles.consultorio = { ...n.dobles.consultorio, logoKey: null };
+    }
+    expect((await correosA(c.contacto.email!))[0]?.html).not.toContain('cid:logo');
+    expect(lineasLog.some((l) => l.includes('sin logo') && l.includes(id))).toBe(true);
   });
 
   test('el correo y los logs no contienen el teléfono del paciente; envio no tiene columnas de contacto', async () => {
@@ -187,11 +261,11 @@ describe('enviarCorreo', () => {
     const c = nuevaCita();
     n.dobles.citas = [c];
     const ok = await crearEnvio(T, c, 'aprobado');
-    expect(await enviarCorreo(ctx, T, ok)).toBe('enviado');
+    expect((await enviarCorreo(ctx, T, ok)).resultado).toBe('enviado');
     const falla = nuevaCita();
     n.dobles.citas = [falla];
     const caido = { ...ctx, puertos: { ...ctx.puertos, correo: crearCanalSmtp({ host: '127.0.0.1', puerto: 1, remitente: 'x@consultorio.test' }) } };
-    expect(await enviarCorreo(caido, T, await crearEnvio(T, falla, 'aprobado'))).toBe('fallido');
+    expect((await enviarCorreo(caido, T, await crearEnvio(T, falla, 'aprobado'))).resultado).toBe('fallido');
 
     const [correo] = await correosA(c.contacto.email!);
     expect(correo?.html).toContain('Ana Gómez');
@@ -208,16 +282,19 @@ describe('asegurarEnvios', () => {
   test('crea las filas pendientes de correo, es idempotente y registra el consultorio con su zona', async () => {
     const T = uuidv7();
     n.dobles.consultorio = { ...n.dobles.consultorio, zonaHoraria: 'America/Tijuana' };
-    // 2031-05-03T05:00Z = 2031-05-02 22:00 en Tijuana (PDT): la fecha local es la del 2.
-    const c = nuevaCita({ inicio: '2031-05-03T05:00:00.000Z', fin: '2031-05-03T05:30:00.000Z' });
-    n.dobles.citas = [c];
-    await asegurarEnvios(ctx, T, '2031-05-02', '2031-05-02');
-    await asegurarEnvios(ctx, T, '2031-05-02', '2031-05-02');
-    const filas = await withTenant(n.appPool, T, async (tx) => (await tx.query("SELECT cita_id, fecha_cita::text AS fecha, canal, estado FROM envio")).rows);
-    expect(filas).toEqual([{ cita_id: c.citaId, fecha: '2031-05-02', canal: 'correo', estado: 'pendiente' }]);
-    const cons = await withTenant(n.appPool, T, async (tx) => (await tx.query('SELECT zona_horaria FROM consultorio')).rows);
-    expect(cons).toEqual([{ zona_horaria: 'America/Tijuana' }]);
-    n.dobles.consultorio = { ...n.dobles.consultorio, zonaHoraria: 'America/Mexico_City' };
+    try {
+      // 2031-05-03T05:00Z = 2031-05-02 22:00 en Tijuana (PDT): la fecha local es la del 2.
+      const c = nuevaCita({ inicio: '2031-05-03T05:00:00.000Z', fin: '2031-05-03T05:30:00.000Z' });
+      n.dobles.citas = [c];
+      await asegurarEnvios(ctx, T, '2031-05-02', '2031-05-02');
+      await asegurarEnvios(ctx, T, '2031-05-02', '2031-05-02');
+      const filas = await withTenant(n.appPool, T, async (tx) => (await tx.query("SELECT cita_id, fecha_cita::text AS fecha, canal, estado FROM envio")).rows);
+      expect(filas).toEqual([{ cita_id: c.citaId, fecha: '2031-05-02', canal: 'correo', estado: 'pendiente' }]);
+      const cons = await withTenant(n.appPool, T, async (tx) => (await tx.query('SELECT zona_horaria FROM consultorio')).rows);
+      expect(cons).toEqual([{ zona_horaria: 'America/Tijuana' }]);
+    } finally {
+      n.dobles.consultorio = { ...n.dobles.consultorio, zonaHoraria: 'America/Mexico_City' };
+    }
   });
 
   test('un envío anulado vuelve a pendiente si la cita regresa a esa fecha (y conserva lo ya enviado)', async () => {

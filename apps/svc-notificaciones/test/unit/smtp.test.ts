@@ -25,8 +25,16 @@ describe('crearCanalSmtp', () => {
   test('con usuario autentica; el puerto 465 usa TLS implícito; sin adjuntos manda lista vacía', async () => {
     const canal = crearCanalSmtp({ host: 'smtp.x.test', puerto: 465, usuario: 'u', password: 'p', remitente: 'c@x.test' });
     expect(createTransport.mock.calls[0]?.[0]).toMatchObject({ secure: true, auth: { user: 'u', pass: 'p' } });
+    expect(createTransport.mock.calls[0]?.[0]).not.toHaveProperty('requireTLS');
     await canal.enviar({ para: 'p@x.test', asunto: 'A', html: 'h', texto: 't' });
     expect(sendMail.mock.calls[0]?.[0].attachments).toEqual([]);
+  });
+
+  test('con credenciales y puerto distinto de 465 exige STARTTLS; sin credenciales no', () => {
+    crearCanalSmtp({ host: 'smtp.x.test', puerto: 587, usuario: 'u', password: 'p', remitente: 'c@x.test' });
+    expect(createTransport.mock.calls[0]?.[0]).toMatchObject({ secure: false, requireTLS: true });
+    crearCanalSmtp({ host: 'mailpit', puerto: 1025, remitente: 'c@x.test' });
+    expect(createTransport.mock.calls[1]?.[0]).not.toHaveProperty('requireTLS');
   });
 
   test('un fallo del transporte se propaga', async () => {

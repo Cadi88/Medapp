@@ -84,7 +84,7 @@ describe('consumidor de notificaciones', () => {
         data: { ...cita(C, '2031-03-11T18:00:00.000Z'), anterior: { medicoId: uuidv7(), inicio: '2031-03-04T03:00:00.000Z', fin: '2031-03-04T03:30:00.000Z' } },
       }),
     );
-    const filas = await esperar(() => envios(T), (f) => f.some((x) => x.estado === 'anulado'));
+    await esperar(() => envios(T), (f) => f.some((x) => x.estado === 'anulado'));
     await barrera();
     const despues = await envios(T);
     expect(despues.filter((f) => f.cita_id === C && f.fecha === '2031-03-03').map((f) => [f.canal, f.estado, f.token_hash])).toEqual([
@@ -93,7 +93,6 @@ describe('consumidor de notificaciones', () => {
     ]);
     expect(despues.find((f) => f.fecha === '2031-03-10')).toMatchObject({ estado: 'aprobado', token_hash: hashOtraFecha });
     expect(despues.find((f) => f.cita_id !== C)).toMatchObject({ estado: 'aprobado', token_hash: hashOtraCita });
-    expect(filas.length).toBeGreaterThan(0);
     // El token viejo ya no se encuentra.
     expect((await n.appPool.query('SELECT * FROM fn_envio_por_token($1)', [hashCorreo])).rows).toEqual([]);
   });

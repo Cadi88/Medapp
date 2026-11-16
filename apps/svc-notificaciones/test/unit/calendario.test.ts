@@ -14,6 +14,9 @@ describe('fechaCitaLocal / fechaDeEnvio', () => {
     expect(() => fechaCitaLocal('2026-11-17T03:00:00Z', 'No/Existe')).toThrow(/fecha de la cita/i);
     expect(() => fechaCitaLocal('no-es-iso', TIJUANA)).toThrow(/fecha de la cita/i);
   });
+  test('fechaDeEnvio lanza ante una fecha inválida', () => {
+    expect(() => fechaDeEnvio('no-es-fecha')).toThrow(/inválida/i);
+  });
   test('fechaDeEnvio es el día anterior (cruza mes y año)', () => {
     expect(fechaDeEnvio('2026-11-16')).toBe('2026-11-15');
     expect(fechaDeEnvio('2026-12-01')).toBe('2026-11-30');
@@ -71,6 +74,15 @@ describe('corridaPendiente en el día del cambio de horario (R4)', () => {
     expect(corridaPendiente(DateTime.fromISO('2026-11-01T08:30:00Z'), TIJUANA, '01:30', null)).toEqual(esperado); // 01:30 PDT
     expect(corridaPendiente(DateTime.fromISO('2026-11-01T09:45:00Z'), TIJUANA, '01:30', null)).toEqual(esperado); // 01:45 PST (repetida)
     expect(corridaPendiente(DateTime.fromISO('2026-11-01T09:45:00Z'), TIJUANA, '01:30', '2026-11-01')).toBeNull(); // ya corrió
+  });
+});
+
+describe('corridaPendiente en el hueco del cambio de horario (R6)', () => {
+  // America/Tijuana adelanta el 2026-03-08 de 02:00 PST a 03:00 PDT: las 02:30 no existen; sale al terminar el hueco.
+  test('horaEnvio 02:30: 01:59 → null; 03:00 (primer instante tras el hueco) → corrida de ese día', () => {
+    const esperado = { fechaEnvio: '2026-03-08', fechaCitas: '2026-03-09' };
+    expect(corridaPendiente(DateTime.fromISO('2026-03-08T09:59:00Z'), TIJUANA, '02:30', null)).toBeNull(); // 01:59 PST
+    expect(corridaPendiente(DateTime.fromISO('2026-03-08T10:00:00Z'), TIJUANA, '02:30', null)).toEqual(esperado); // 03:00 PDT
   });
 });
 

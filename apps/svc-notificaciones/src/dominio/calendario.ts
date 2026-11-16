@@ -13,7 +13,10 @@ export function fechaCitaLocal(inicioIso: string, zona: string): string {
 
 /** El recordatorio sale el día anterior a la cita (todos los días, domingo incluido). */
 export function fechaDeEnvio(fechaCita: string): string {
-  return DateTime.fromISO(fechaCita, { zone: 'UTC' }).minus({ days: 1 }).toISODate()!;
+  const dia = DateTime.fromISO(fechaCita, { zone: 'UTC' }).minus({ days: 1 });
+  const fecha = dia.isValid ? dia.toISODate() : null;
+  if (fecha === null) throw new Error(`Fecha de cita inválida: ${dia.invalidReason ?? 'fecha inválida'}`);
+  return fecha;
 }
 
 const HORA_ENVIO = /^([01]\d|2[0-3]):([0-5]\d)(?::[0-5]\d)?$/;
@@ -36,8 +39,14 @@ export function corridaPendiente(
   const manana = local.plus({ days: 1 }).toISODate();
   if (hoy === null || manana === null) return null;
   if (ultimaCorrida !== null && ultimaCorrida >= hoy) return null;
-  if (local < local.startOf('day').set({ hour: Number(hora[1]), minute: Number(hora[2]) })) return null;
+  // Se compara la hora de pared: si `horaEnvio` cae en el hueco del cambio de horario (02:30 que no existe) sale en cuanto termina el hueco.
+  if (local.hour * 60 + local.minute < Number(hora[1]) * 60 + Number(hora[2])) return null;
   return { fechaEnvio: hoy, fechaCitas: manana };
+}
+
+/** Estados que se envían según el modo (la misma regla que `debeEnviar`, para reclamarlos en SQL). */
+export function estadosEnviables(modo: ModoRecordatorios): EstadoEnvio[] {
+  return modo === 'sin_revision' ? ['aprobado', 'pendiente'] : ['aprobado'];
 }
 
 /** `con_revision` solo envía lo aprobado; `sin_revision` también lo pendiente. Lo enviado, fallido o anulado nunca. */

@@ -35,8 +35,8 @@ export async function manejarEvento(e: EventEnvelope, tx: pg.PoolClient, identid
       return;
     }
     case 'cita.cancelada@1': {
+      // Anular no necesita la zona: no se llama a identidad.
       const { data } = CitaCancelada.parse(e);
-      await zonaDelConsultorio(tx, e.tenant_id, identidad);
       await anularNoEnviados(tx, e.tenant_id, data.citaId);
       return;
     }

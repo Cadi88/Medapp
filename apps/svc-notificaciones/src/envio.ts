@@ -5,8 +5,9 @@ import { uuidv7 } from 'uuidv7';
 import { armarCorreo } from './correo/mensaje.js';
 import { leerConfig } from './datos/config.js';
 import { registrarConsultorio } from './datos/consultorios.js';
-import { asegurarEnvioCorreo, asignarToken, leerEnvio, marcarEnviado, registrarFallo } from './datos/envios.js';
-import { debeEnviar, fechaCitaLocal, fechaYHoraLocal } from './dominio/calendario.js';
+import { asegurarEnvioCorreo, leerEnvio, marcarEnviado, reclamarEnvio, registrarFallo } from './datos/envios.js';
+import { debeEnviar, estadosEnviables, fechaCitaLocal, fechaYHoraLocal } from './dominio/calendario.js';
+import type { EstadoEnvio } from './dominio/calendario.js';
 import { generarToken } from './dominio/token.js';
 import type { Puertos } from './puertos.js';
 
@@ -23,6 +24,14 @@ export interface ContextoEnvio {
   logger?: Logger;
 }
 
+/** `fallido` con `estado` aún reintentable (`pendiente`/`aprobado`) es un fallo transitorio; con `fallido` es definitivo. */
+export interface ResultadoEnvio {
+  resultado: 'enviado' | 'fallido' | 'omitido';
+  /** Estado del envío tras la llamada (`null` si no existe). */
+  estado: EstadoEnvio | null;
+  intentos: number;
+}
+
 const tieneCorreo = (email: string | null): email is string => email !== null && email.trim().length > 0;
 
 /**
@@ -30,32 +39,35 @@ const tieneCorreo = (email: string | null): email is string => email !== null &&
  * o sin aprobar en `con_revision`) da `omitido`. Cada intento que envía lleva un token nuevo; el correo sale fuera de transacción.
  * Un fallo de agenda o identidad se propaga (no cuenta como intento). `enviadoPor` es el usuario que lo disparó, o null si fue automático.
  */
-export async function enviarCorreo(ctx: ContextoEnvio, tenantId: string, envioId: string, enviadoPor: string | null = null): Promise<'enviado' | 'fallido' | 'omitido'> {
+export async function enviarCorreo(ctx: ContextoEnvio, tenantId: string, envioId: string, enviadoPor: string | null = null): Promise<ResultadoEnvio> {
   const previo = await withTenant(ctx.pool, tenantId, async (tx) => {
     const envio = await leerEnvio(tx, tenantId, envioId);
-    if (!envio || envio.canal !== 'correo') return null;
-    const config = await leerConfig(tx, tenantId);
-    return debeEnviar(envio, config.modo) ? { envio, config } : null;
+    return envio ? { envio, config: await leerConfig(tx, tenantId) } : null;
   });
-  if (!previo) return 'omitido';
+  if (!previo) return { resultado: 'omitido', estado: null, intentos: 0 };
   const { envio, config } = previo;
+  const omitido = (): ResultadoEnvio => ({ resultado: 'omitido', estado: envio.estado, intentos: envio.intentos });
+  if (envio.canal !== 'correo' || !debeEnviar(envio, config.modo)) return omitido();
 
   const citas = await ctx.puertos.agenda.obtenerCitas(tenantId, envio.fechaCita, envio.fechaCita);
   const cita = citas.find((c) => c.citaId === envio.citaId);
-  if (!cita || !tieneCorreo(cita.contacto.email)) return 'omitido';
+  if (!cita || !tieneCorreo(cita.contacto.email)) return omitido();
   const destino = cita.contacto.email.trim();
   const consultorio = await ctx.puertos.identidad.obtenerConsultorio(tenantId);
-  const logo = consultorio.logoKey ? (await ctx.puertos.almacen.leer(consultorio.logoKey))?.bytes : undefined;
+  let logo: Uint8Array | undefined;
+  if (consultorio.logoKey) {
+    try {
+      logo = (await ctx.puertos.almacen.leer(consultorio.logoKey))?.bytes;
+    } catch {
+      // Un almacén caído no debe impedir el recordatorio: sale sin logo.
+      ctx.logger?.warn({ envioId, citaId: envio.citaId }, 'no se pudo leer el logo; el correo sale sin logo');
+    }
+  }
 
-  // Transacción corta: el token nuevo reemplaza al anterior y se vuelve a comprobar que el envío siga vigente.
+  // Reclamo atómico: el token nuevo reemplaza al anterior y solo quien reclama el envío lo envía (nunca dos correos).
   const { token, hash } = generarToken();
-  const reservado = await withTenant(ctx.pool, tenantId, async (tx) => {
-    const actual = await leerEnvio(tx, tenantId, envioId, true);
-    if (!actual || !debeEnviar(actual, config.modo)) return false;
-    await asignarToken(tx, envioId, hash, cita.inicio);
-    return true;
-  });
-  if (!reservado) return 'omitido';
+  const reclamado = await withTenant(ctx.pool, tenantId, (tx) => reclamarEnvio(tx, tenantId, envioId, hash, cita.inicio, estadosEnviables(config.modo)));
+  if (!reclamado) return omitido();
 
   const { fecha, hora } = fechaYHoraLocal(cita.inicio, consultorio.zonaHoraria);
   const enlace = (accion: string) => `${ctx.webOrigen.replace(/\/+$/, '')}/r/${token}?accion=${accion}`;
@@ -77,14 +89,15 @@ export async function enviarCorreo(ctx: ContextoEnvio, tenantId: string, envioId
   try {
     await ctx.puertos.correo.enviar({ para: destino, asunto: correo.asunto, html: correo.html, texto: correo.texto, adjuntos: correo.adjuntos });
   } catch (err) {
-    const { intentos, estado } = await withTenant(ctx.pool, tenantId, (tx) => registrarFallo(tx, envioId, MAX_INTENTOS));
+    const fallo = await withTenant(ctx.pool, tenantId, (tx) => registrarFallo(tx, envioId, hash, MAX_INTENTOS));
     // El mensaje del error puede traer la dirección del paciente: solo se registra su código.
-    ctx.logger?.warn({ envioId, citaId: envio.citaId, intentos, estado, codigo: (err as { code?: unknown }).code }, 'no se pudo enviar el correo');
-    return 'fallido';
+    ctx.logger?.warn({ envioId, citaId: envio.citaId, intentos: fallo?.intentos, estado: fallo?.estado, codigo: (err as { code?: unknown }).code }, 'no se pudo enviar el correo');
+    return fallo ? { resultado: 'fallido', ...fallo } : { resultado: 'fallido', estado: 'anulado', intentos: envio.intentos };
   }
-  await withTenant(ctx.pool, tenantId, (tx) => marcarEnviado(tx, envioId, ctx.reloj(), enviadoPor));
-  ctx.logger?.info({ envioId, citaId: envio.citaId }, 'correo enviado');
-  return 'enviado';
+  const marcado = await withTenant(ctx.pool, tenantId, (tx) => marcarEnviado(tx, envioId, hash, ctx.reloj(), enviadoPor));
+  ctx.logger?.info({ envioId, citaId: envio.citaId, anuladoDuranteEnvio: !marcado || undefined }, 'correo enviado');
+  // Si se anuló mientras salía, el correo ya salió pero el envío queda anulado (no se pisa).
+  return { resultado: 'enviado', estado: marcado ? 'enviado' : 'anulado', intentos: envio.intentos };
 }
 
 /**
