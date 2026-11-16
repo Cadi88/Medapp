@@ -22,3 +22,4 @@ export type { HttpAppOptions } from './http/app.js';
 export { configAlmacenDesdeEnv } from './almacen/almacen.js';
 export type { Almacen, ConfigAlmacen } from './almacen/almacen.js';
 export { crearAlmacenS3, asegurarBucket } from './almacen/s3.js';
+export { requireTokenInterno, llamarInterno } from './http/token-interno.js';

@@ -154,6 +154,24 @@ describe('autenticación en el gateway', () => {
   });
 });
 
+describe('rutas internas entre servicios', () => {
+  test.each(['/api/agenda/interno/citas-para-recordatorio', '/api/identidad/interno/x', '/api/agenda/interno', '/api/notificaciones/interno/x'])(
+    '%s → 404 sin token, con token y con otros métodos; nunca llega al destino',
+    async (url) => {
+      const antes = recibidos;
+      const token = auth(await jwks.sign(claims));
+      for (const headers of [{}, token, { 'x-token-interno': 'x'.repeat(40) }]) {
+        for (const method of ['GET', 'POST', 'DELETE'] as const) {
+          const r = await gw.inject({ method, url, headers });
+          expect(r.statusCode).toBe(404);
+          expect(r.json().code).toBe('NO_ENCONTRADO');
+        }
+      }
+      expect(recibidos).toBe(antes);
+    },
+  );
+});
+
 describe('rutas públicas y de sesión', () => {
   test('registro es público y reescribe el prefijo', async () => {
     const r = await gw.inject({ ...registroReq, payload: { slug: 'x' } });

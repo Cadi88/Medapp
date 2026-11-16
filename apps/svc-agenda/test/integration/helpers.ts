@@ -10,6 +10,7 @@ import type pg from 'pg';
 import { uuidv7 } from 'uuidv7';
 import { buildServer } from '../../src/server.js';
 
+export const TOKEN_INTERNO_PRUEBA = 'token-interno-de-pruebas-'.repeat(2);
 export const MIGRACIONES = fileURLToPath(new URL('../../migrations', import.meta.url));
 
 export interface ClaimsPrueba {
@@ -55,7 +56,7 @@ export async function iniciarAgenda(): Promise<Agenda> {
   const appPool = createPool(pgh.appUrl);
   const nc = await connect({ servers: nats.url });
   await ensureStreams(nc);
-  const app = await buildServer({ pool: appPool, jwksUrl: jwks.url, reloj: () => new Date() });
+  const app = await buildServer({ pool: appPool, jwksUrl: jwks.url, tokenInterno: TOKEN_INTERNO_PRUEBA, reloj: () => new Date() });
   await app.ready();
   return {
     app,

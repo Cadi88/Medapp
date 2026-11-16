@@ -3,7 +3,7 @@ import type { FastifyInstance } from 'fastify';
 import { uuidv7 } from 'uuidv7';
 import { afterAll, beforeAll, describe, expect, test } from 'vitest';
 import { buildServer } from '../../src/server.js';
-import { iniciarAgenda, type Agenda } from './helpers.js';
+import { iniciarAgenda, TOKEN_INTERNO_PRUEBA, type Agenda } from './helpers.js';
 
 let ag: Agenda;
 let app: FastifyInstance; // reloj fijo: lunes 2030-01-07 15:45Z (09:45 hora del consultorio)
@@ -20,7 +20,7 @@ const INSERT_CITA = `INSERT INTO cita (id, tenant_id, medico_id, tipo_cita_id, r
 
 beforeAll(async () => {
   ag = await iniciarAgenda();
-  app = await buildServer({ pool: ag.appPool, jwksUrl: ag.jwks.url, reloj: () => new Date('2030-01-07T15:45:00Z') });
+  app = await buildServer({ pool: ag.appPool, jwksUrl: ag.jwks.url, tokenInterno: TOKEN_INTERNO_PRUEBA, reloj: () => new Date('2030-01-07T15:45:00Z') });
   await app.ready();
   await withTenant(ag.appPool, T, (tx) => tx.query("INSERT INTO consultorio (tenant_id, zona_horaria) VALUES ($1, 'America/Mexico_City')", [T]));
   await ag.sembrarMedico(T, dr, 'Dra. Ana');

@@ -17,7 +17,9 @@ const env = {
   migratorUrl: requerida('MIGRATOR_DATABASE_URL'),
   natsUrl: requerida('NATS_URL'),
   jwksUrl: requerida('JWKS_URL'),
+  tokenInterno: requerida('TOKEN_INTERNO'),
 };
+if (env.tokenInterno.length < 32) throw new Error('TOKEN_INTERNO debe tener al menos 32 caracteres');
 
 initTelemetry('svc-agenda');
 const logger = createLogger('svc-agenda');
@@ -28,7 +30,7 @@ const nc = await connect({ servers: env.natsUrl });
 await ensureStreams(nc);
 const consumidor = await iniciarConsumidor({ pool, nc, logger });
 const publicador = startOutboxPublisher({ pool, nc, onError: (err) => logger.error({ err }, 'publicador del outbox') });
-const app = await buildServer({ pool, jwksUrl: env.jwksUrl, reloj: () => new Date() });
+const app = await buildServer({ pool, jwksUrl: env.jwksUrl, tokenInterno: env.tokenInterno, reloj: () => new Date() });
 
 let apagando = false;
 const apagar = async (): Promise<void> => {

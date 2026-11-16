@@ -5,6 +5,7 @@ import { bloqueosRutas } from './rutas/bloqueos.js';
 import { citasRutas } from './rutas/citas.js';
 import { disponibilidadRutas } from './rutas/disponibilidad.js';
 import { horarioRutas } from './rutas/horario.js';
+import { internoRutas, RUTAS_INTERNAS } from './rutas/interno.js';
 import { medicosRutas } from './rutas/medicos.js';
 import { tiposCitaRutas } from './rutas/tipos-cita.js';
 
@@ -15,10 +16,12 @@ export interface ServerOptions {
   jwksUrl: string;
   /** Reloj inyectable: el dominio nunca llama a `new Date()`. */
   reloj?: () => Date;
+  /** Token de las rutas `/interno/*` (≥ 32 caracteres). */
+  tokenInterno: string;
 }
 
 export async function buildServer(o: ServerOptions): Promise<FastifyInstance> {
-  const app = await createHttpApp({ servicio: 'svc-agenda', plugin: { jwksUrl: o.jwksUrl, rutasPublicas: [] } });
+  const app = await createHttpApp({ servicio: 'svc-agenda', plugin: { jwksUrl: o.jwksUrl, rutasPublicas: RUTAS_INTERNAS } });
   const pool = o.pool;
   const reloj = o.reloj ?? (() => new Date());
   await app.register(medicosRutas, { pool });
@@ -27,5 +30,6 @@ export async function buildServer(o: ServerOptions): Promise<FastifyInstance> {
   await app.register(bloqueosRutas, { pool });
   await app.register(disponibilidadRutas, { pool, reloj });
   await app.register(citasRutas, { pool, reloj });
+  await app.register(internoRutas, { pool, tokenInterno: o.tokenInterno });
   return app;
 }

@@ -8,6 +8,7 @@ import { publicJwkFrom } from './jwt-keys.js';
 import { authRoutes } from './routes/auth.js';
 import { consultorioRoutes } from './routes/consultorio.js';
 import { datosFiscalesRoutes } from './routes/datos-fiscales.js';
+import { internoRoutes, RUTAS_INTERNAS } from './routes/interno.js';
 import { logoRoutes } from './routes/logo.js';
 import { miembrosRoutes } from './routes/miembros.js';
 import { perfilRoutes } from './routes/perfil.js';
@@ -23,6 +24,8 @@ export interface ServerOptions {
   nc?: NatsConnection;
   /** Llave Ed25519 con la que identidad firma los tokens de tenant; de ella se deriva el JWKS local. */
   jwtPrivateJwk: JWK;
+  /** Token de las rutas `/interno/*` (≥ 32 caracteres). */
+  tokenInterno: string;
   betterAuth: { secret: string; baseURL: string; rateLimitEnabled?: boolean; trustedOrigins?: string[] };
 }
 
@@ -33,7 +36,7 @@ export async function buildServer(o: ServerOptions): Promise<FastifyInstance> {
   const verificador = createLocalJWKSet({ keys: [publicJwkFrom(o.jwtPrivateJwk)] });
   const app = await createHttpApp({
     servicio: 'svc-identidad',
-    plugin: { verificador, rutasPublicas: RUTAS_PUBLICAS },
+    plugin: { verificador, rutasPublicas: [...RUTAS_PUBLICAS, ...RUTAS_INTERNAS] },
   });
 
   const auth = createAuth({
@@ -47,6 +50,7 @@ export async function buildServer(o: ServerOptions): Promise<FastifyInstance> {
   await app.register(registroRoutes, { deps: createRegistroDeps(o.pool, auth, app.log) });
   await app.register(sesionRoutes, { auth, pool: o.pool, jwtPrivateJwk: o.jwtPrivateJwk });
   await app.register(consultorioRoutes, { pool: o.pool });
+  await app.register(internoRoutes, { pool: o.pool, tokenInterno: o.tokenInterno });
   await app.register(logoRoutes, { pool: o.pool, almacen: o.almacen });
   await app.register(miembrosRoutes, { auth, pool: o.pool });
   await app.register(perfilRoutes, { pool: o.pool });

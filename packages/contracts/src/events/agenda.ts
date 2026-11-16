@@ -8,6 +8,9 @@ const instante = z.iso.datetime({ offset: true });
 /** Canal por el que se creó la cita: en esta entrega solo `recepcion` (la entrega 2 agrega `reserva_publica`). */
 export const origenCitaSchema = z.enum(['recepcion']);
 
+/** Quién provocó el cambio de estado o la cancelación (opcional: los productores anteriores no lo envían). */
+export const origenCambioSchema = z.enum(['personal', 'paciente', 'recepcion']);
+
 export const CitaCreada = defineEvent(
   'cita.creada',
   1,
@@ -38,12 +41,19 @@ export const CitaReprogramada = defineEvent(
 export const CitaCancelada = defineEvent(
   'cita.cancelada',
   1,
-  z.object({ citaId: z.uuid(), medicoId: z.uuid(), inicio: instante, fin: instante }),
+  z.object({ citaId: z.uuid(), medicoId: z.uuid(), inicio: instante, fin: instante, origen: origenCambioSchema.optional() }),
 );
 
 /** `de` → `a` para confirmada, atendida y no_asistio (la cancelación tiene su propio evento). `medicoId` es un dato adicional. */
 export const CitaEstadoCambiado = defineEvent(
   'cita.estado_cambiado',
   1,
-  z.object({ citaId: z.uuid(), medicoId: z.uuid(), de: estadoCitaSchema, a: estadoCitaSchema }),
+  z.object({
+    citaId: z.uuid(),
+    medicoId: z.uuid(),
+    de: estadoCitaSchema,
+    a: estadoCitaSchema,
+    origen: origenCambioSchema.optional(),
+    pideCambio: z.boolean().optional(),
+  }),
 );

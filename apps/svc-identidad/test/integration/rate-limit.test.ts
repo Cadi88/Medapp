@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, test } from 'vitest';
 import type { FastifyInstance } from 'fastify';
-import { ORIGEN, PASSWORD, almacenEnMemoria, llavePrivada, prepararBase, registro, type Entorno } from './helpers.js';
+import { ORIGEN, PASSWORD, TOKEN_INTERNO_PRUEBA, almacenEnMemoria, llavePrivada, prepararBase, registro, type Entorno } from './helpers.js';
 import { buildServer } from '../../src/server.js';
 
 let env: Entorno;
@@ -12,6 +12,7 @@ beforeAll(async () => {
     pool: env.appPool,
     almacen: almacenEnMemoria(),
     jwtPrivateJwk: await llavePrivada(),
+    tokenInterno: TOKEN_INTERNO_PRUEBA,
     betterAuth: { secret: 'secreto-de-pruebas-'.repeat(3), baseURL: 'http://localhost:3000', rateLimitEnabled: true },
   });
   await app.ready();

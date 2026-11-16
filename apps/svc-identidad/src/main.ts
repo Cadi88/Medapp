@@ -27,6 +27,7 @@ const env = {
   natsUrl: requerida('NATS_URL'),
   jwtPrivateJwk: JSON.parse(requerida('JWT_PRIVATE_JWK')) as JWK,
   authSecret: requerida('BETTER_AUTH_SECRET'),
+  tokenInterno: requerida('TOKEN_INTERNO'),
   authUrl: requerida('BETTER_AUTH_URL'),
   // Orígenes (separados por coma) del sitio web que pueden hacer POST con cookies; vacío = ninguno.
   origenesConfiables: (process.env.ORIGENES_CONFIABLES ?? '').split(',').map((o) => o.trim()).filter(Boolean),
@@ -35,6 +36,7 @@ const env = {
   // Nunca se registra: lleva la clave secreta del almacenamiento.
   almacen: configAlmacenDesdeEnv(process.env),
 };
+if (env.tokenInterno.length < 32) throw new Error('TOKEN_INTERNO debe tener al menos 32 caracteres');
 
 initTelemetry('svc-identidad');
 await runMigrations(env.migratorUrl, fileURLToPath(new URL('../migrations', import.meta.url)));
@@ -43,7 +45,7 @@ await asegurarBucket(env.almacen);
 const pool = createPool(env.databaseUrl);
 const nc = await connect({ servers: env.natsUrl });
 await ensureStreams(nc);
-const app = await buildServer({ pool, nc, almacen: crearAlmacenS3(env.almacen), jwtPrivateJwk: env.jwtPrivateJwk, betterAuth: { secret: env.authSecret, baseURL: env.authUrl, rateLimitEnabled: env.authRateLimit, trustedOrigins: env.origenesConfiables } });
+const app = await buildServer({ pool, nc, almacen: crearAlmacenS3(env.almacen), jwtPrivateJwk: env.jwtPrivateJwk, tokenInterno: env.tokenInterno, betterAuth: { secret: env.authSecret, baseURL: env.authUrl, rateLimitEnabled: env.authRateLimit, trustedOrigins: env.origenesConfiables } });
 
 const apagar = async (): Promise<void> => {
   await app.close();

@@ -19,6 +19,11 @@ if [ -f .env ]; then
         ;;
     esac
   done < .env.example
+  # Secreto generado (no está en .env.example): se agrega solo si falta.
+  if ! grep -q '^TOKEN_INTERNO=' .env; then
+    printf '\n# Agregado por scripts/generar-dev-env.sh\nTOKEN_INTERNO=%s\n' "$(node -e "console.log(require('node:crypto').randomBytes(36).toString('base64url'))")" >> .env
+    faltantes=$((faltantes + 1))
+  fi
   echo ".env ya existe; se agregaron $faltantes variable(s) faltante(s)."
   exit 0
 fi
@@ -28,6 +33,7 @@ SECRETOS=$(node --input-type=module -e "
 import { generateKeyPairSync, randomBytes, randomUUID } from 'node:crypto';
 const { privateKey } = generateKeyPairSync('ed25519');
 const jwk = { ...privateKey.export({ format: 'jwk' }), kid: 'identidad-' + randomUUID().slice(0, 8) };
+console.log('TOKEN_INTERNO=' + randomBytes(36).toString('base64url'));
 console.log('BETTER_AUTH_SECRET=' + randomBytes(48).toString('base64url'));
 console.log(\"JWT_PRIVATE_JWK='\" + JSON.stringify(jwk) + \"'\");
 ")

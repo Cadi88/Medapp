@@ -2,7 +2,7 @@ import { AppError, createHttpApp, mapError } from '@consultorio/platform';
 import rateLimit from '@fastify/rate-limit';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { Agent, request as undiciRequest } from 'undici';
-import { clasificarRuta, filtrarCabecerasPeticion, filtrarCabecerasRespuesta, RUTAS_PUBLICAS, rutaPermitida, urlDestino } from './rutas.js';
+import { clasificarRuta, esRutaInterna, filtrarCabecerasPeticion, filtrarCabecerasRespuesta, RUTAS_PUBLICAS, rutaPermitida, urlDestino } from './rutas.js';
 
 export interface GatewayOptions {
   /** JWKS de svc-identidad con el que se verifican los tokens de tenant. */
@@ -25,6 +25,8 @@ export interface GatewayOptions {
 type Metodo = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
 /** Ruta interna a la que se reescribe toda petición `/api/` con ruta no permitida (responde 400). */
 const RUTA_INVALIDA = '/__ruta_invalida';
+/** Ruta interna a la que se reescribe `/api/<servicio>/interno[/*]` (responde 404 sin pedir token). */
+const RUTA_INTERNA_BLOQUEADA = '/__interno_bloqueada';
 const LIMITE_LOGO = 2 * 1024 * 1024;
 const METODOS: Metodo[] = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'];
 
@@ -47,14 +49,17 @@ export async function buildGateway(o: GatewayOptions): Promise<FastifyInstance> 
   const timeout = o.timeoutDestinoMs ?? 10_000;
   const app = await createHttpApp({
     servicio: 'gateway',
-    plugin: { jwksUrl: o.jwksUrl, rutasPublicas: [...RUTAS_PUBLICAS, RUTA_INVALIDA] },
+    plugin: { jwksUrl: o.jwksUrl, rutasPublicas: [...RUTAS_PUBLICAS, RUTA_INVALIDA, RUTA_INTERNA_BLOQUEADA] },
     fastify: {
       trustProxy: o.confiarEnProxy ?? false,
       // Corre antes de cualquier hook (autenticación incluida): una ruta /api/ con segmentos de punto o
       // barras codificadas nunca llega a clasificarse ni a reenviarse, tenga token o no.
       rewriteUrl: (req) => {
         const url = req.url ?? '';
-        return url.startsWith('/api/') && !rutaPermitida(url) ? RUTA_INVALIDA : url;
+        if (!url.startsWith('/api/')) return url;
+        if (!rutaPermitida(url)) return RUTA_INVALIDA;
+        // Las rutas /interno son solo entre servicios: 404 sin token, con token y con cualquier método.
+        return esRutaInterna(url) ? RUTA_INTERNA_BLOQUEADA : url;
       },
     },
   });
@@ -79,7 +84,7 @@ export async function buildGateway(o: GatewayOptions): Promise<FastifyInstance> 
 
   async function proxear(req: FastifyRequest, reply: FastifyReply): Promise<FastifyReply> {
     const c = clasificarRuta(req.method, req.url);
-    if (!c) throw new AppError('NO_ENCONTRADO', 'Recurso no encontrado', 404);
+    if (!c || c.acceso === 'bloqueada') throw new AppError('NO_ENCONTRADO', 'Recurso no encontrado', 404);
     // El plugin decide "pública" solo por ruta; aquí se exige además el método. Sin tenant → 401.
     if (c.acceso === 'protegida' && !req.ctx.tenantId) throw new AppError('NO_AUTENTICADO', 'No autenticado', 401);
 
@@ -108,6 +113,13 @@ export async function buildGateway(o: GatewayOptions): Promise<FastifyInstance> 
     url: RUTA_INVALIDA,
     handler: () => {
       throw new AppError('VALIDACION', 'Solicitud inválida', 400);
+    },
+  });
+  app.route({
+    method: METODOS,
+    url: RUTA_INTERNA_BLOQUEADA,
+    handler: () => {
+      throw new AppError('NO_ENCONTRADO', 'Recurso no encontrado', 404);
     },
   });
   for (const r of RUTAS_LIMITADAS) {

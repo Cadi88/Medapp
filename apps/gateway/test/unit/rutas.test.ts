@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import { clasificarRuta, rutaPermitida, urlDestino, filtrarCabecerasPeticion, filtrarCabecerasRespuesta, RUTAS_PUBLICAS } from '../../src/rutas.js';
+import { clasificarRuta, esRutaInterna, rutaPermitida, urlDestino, filtrarCabecerasPeticion, filtrarCabecerasRespuesta, RUTAS_PUBLICAS } from '../../src/rutas.js';
 
 describe('clasificarRuta', () => {
   test.each([
@@ -25,6 +25,21 @@ describe('clasificarRuta', () => {
     ['GET', '/api/auditoria/.well-known/jwks.json', 'protegida'],
   ])('%s %s → %s', (metodo, url, acceso) => {
     expect(clasificarRuta(metodo, url)?.acceso).toBe(acceso);
+  });
+
+  test.each([
+    ['GET', '/api/agenda/interno/citas-para-recordatorio?tenantId=x'],
+    ['POST', '/api/identidad/interno/x'],
+    ['GET', '/api/agenda/interno'],
+    ['GET', '/api/notificaciones/interno/lo-que-sea'],
+    ['DELETE', '/api/auditoria/interno/'],
+  ])('gateway bloquea %s %s', (metodo, url) => {
+    expect(clasificarRuta(metodo, url)).toEqual({ acceso: 'bloqueada' });
+    expect(esRutaInterna(url)).toBe(true);
+  });
+
+  test.each(['/api/agenda/internos', '/api/agenda/medicos/interno', '/api/interno'])('%s no es ruta interna', (url) => {
+    expect(esRutaInterna(url)).toBe(false);
   });
 
   test.each(['/', '/health', '/api', '/api/identidad', '/api/otro/x', '/apix/identidad/x', '/api/identidadx/y'])(

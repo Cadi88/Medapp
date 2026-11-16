@@ -11,6 +11,7 @@ import { generate } from 'otplib';
 import type pg from 'pg';
 import { buildServer } from '../../src/server.js';
 
+export const TOKEN_INTERNO_PRUEBA = 'token-interno-de-pruebas-'.repeat(2);
 export const MIGRACIONES = fileURLToPath(new URL('../../migrations', import.meta.url));
 
 export interface Entorno {
@@ -72,6 +73,7 @@ export async function servidor(env: Entorno, nc?: NatsConnection, almacen: Almac
     almacen,
     ...(nc ? { nc } : {}),
     jwtPrivateJwk: await llavePrivada(),
+    tokenInterno: TOKEN_INTERNO_PRUEBA,
     betterAuth: { secret: 'secreto-de-pruebas-'.repeat(3), baseURL: 'http://localhost:3000' },
   });
   await app.ready();

@@ -1,4 +1,4 @@
-import type { Cita, EstadoCitaDto } from '@consultorio/contracts';
+import type { Cita, CitaParaRecordatorio, EstadoCitaDto } from '@consultorio/contracts';
 import type pg from 'pg';
 
 interface Fila {
@@ -98,4 +98,44 @@ export async function cambiarEstadoCita(tx: pg.PoolClient, tenantId: string, id:
     [tenantId, id, version, estado],
   );
   return r.rows[0] ? aCita(r.rows[0]) : null;
+}
+
+interface FilaRecordatorio {
+  id: string;
+  version: number;
+  inicio: Date;
+  fin: Date;
+  estado: 'agendada' | 'confirmada';
+  medico_id: string;
+  medico_nombre: string;
+  tipo_cita_nombre: string;
+  contacto_nombre: string;
+  contacto_telefono: string;
+  contacto_email: string | null;
+}
+
+/** Citas agendadas o confirmadas que empiezan en [desde, hasta), por orden de inicio. `pideCambio` llega con la Task 2 (siempre false). */
+export async function citasParaRecordatorio(tx: pg.PoolClient, tenantId: string, desde: Date, hasta: Date): Promise<CitaParaRecordatorio[]> {
+  const r = await tx.query<FilaRecordatorio>(
+    `SELECT c.id, c.version, lower(c.rango) AS inicio, upper(c.rango) AS fin, c.estado, c.medico_id, m.nombre AS medico_nombre,
+            t.nombre AS tipo_cita_nombre, c.contacto_nombre, c.contacto_telefono, c.contacto_email
+     FROM cita c
+     JOIN medico m ON m.tenant_id = c.tenant_id AND m.usuario_id = c.medico_id
+     JOIN tipo_cita t ON t.tenant_id = c.tenant_id AND t.id = c.tipo_cita_id
+     WHERE c.tenant_id = $1 AND c.estado IN ('agendada', 'confirmada') AND lower(c.rango) >= $2 AND lower(c.rango) < $3
+     ORDER BY lower(c.rango), c.id`,
+    [tenantId, desde, hasta],
+  );
+  return r.rows.map((f) => ({
+    citaId: f.id,
+    version: f.version,
+    inicio: f.inicio.toISOString(),
+    fin: f.fin.toISOString(),
+    estado: f.estado,
+    pideCambio: false,
+    medicoId: f.medico_id,
+    medicoNombre: f.medico_nombre,
+    tipoCitaNombre: f.tipo_cita_nombre,
+    contacto: { nombre: f.contacto_nombre, telefono: f.contacto_telefono, email: f.contacto_email },
+  }));
 }

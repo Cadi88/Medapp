@@ -1,20 +1,25 @@
 import { isPublicPath } from '@consultorio/platform';
 
 export type Servicio = 'identidad' | 'auditoria' | 'agenda';
-export type Acceso = 'publica' | 'sesion' | 'protegida';
+export type Acceso = 'publica' | 'sesion' | 'protegida' | 'bloqueada';
 
-export interface Clasificacion {
+export interface RutaReenviable {
   servicio: Servicio;
   /** Ruta + query tal cual llegó, sin el prefijo `/api/<servicio>`. */
   rutaDestino: string;
-  acceso: Acceso;
+  acceso: Exclude<Acceso, 'bloqueada'>;
 }
+/** Ruta interna entre servicios: el gateway nunca la reenvía (404). */
+export interface RutaBloqueada {
+  acceso: 'bloqueada';
+}
+export type Clasificacion = RutaReenviable | RutaBloqueada;
 
 interface ReglaAbierta {
   metodos: readonly string[];
   /** Exacta, o por prefijo si termina en `/*` (misma semántica que `isPublicPath`). */
   patron: string;
-  acceso: Exclude<Acceso, 'protegida'>;
+  acceso: Exclude<Acceso, 'protegida' | 'bloqueada'>;
 }
 
 const P = '/api/identidad';
@@ -39,11 +44,20 @@ const rutaSinQuery = (url: string): string => {
 };
 
 /**
+ * `/api/<servicio>/interno` y `/api/<servicio>/interno/*` son rutas entre servicios (token interno): nunca se
+ * exponen. Vale para cualquier nombre de servicio, también los que aún no existen en el gateway.
+ */
+export function esRutaInterna(url: string): boolean {
+  return /^\/api\/[^/]+\/interno(\/|$)/i.test(rutaSinQuery(url));
+}
+
+/**
  * Clasifica una petición entrante. `null` = ruta fuera de `/api/<servicio>/` (desconocida).
  * Una ruta abierta solo lo es si coincide método y ruta cruda (sin normalizar; `..`, `//` o `%2e/%2f/%5c`
  * nunca son abiertas). Todo lo demás bajo un servicio es protegida.
  */
 export function clasificarRuta(metodo: string, url: string): Clasificacion | null {
+  if (esRutaInterna(url)) return { acceso: 'bloqueada' };
   const path = rutaSinQuery(url);
   for (const servicio of SERVICIOS) {
     const prefijo = `/api/${servicio}`;
