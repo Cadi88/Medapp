@@ -112,3 +112,107 @@ export async function listarEnviosCorreoDeFecha(tx: pg.PoolClient, tenantId: str
   );
   return r.rows.map((f) => ({ id: f.id, citaId: f.cita_id, fechaCita: f.fecha_cita, canal: f.canal, estado: f.estado, intentos: f.intentos }));
 }
+
+export type Respuesta = 'confirma' | 'cancela' | 'pide_cambio';
+
+/** Envío con su respuesta, para la pantalla de recordatorios. */
+export interface EnvioDetalle extends Envio {
+  respuesta: Respuesta | null;
+  respondidoEn: Date | null;
+  /** `paciente` o el id del usuario de recepción. */
+  respondidoPor: string | null;
+}
+
+interface FilaDetalle extends Fila {
+  respuesta: Respuesta | null;
+  respondido_en: Date | null;
+  respondido_por: string | null;
+}
+
+const aEnvio = (f: Fila): Envio => ({ id: f.id, citaId: f.cita_id, fechaCita: f.fecha_cita, canal: f.canal, estado: f.estado, intentos: f.intentos });
+
+/** Envíos (de cualquier canal) de las citas entre dos fechas locales, ambas inclusive. */
+export async function listarEnviosDeRango(tx: pg.PoolClient, tenantId: string, desde: string, hasta: string): Promise<EnvioDetalle[]> {
+  const r = await tx.query<FilaDetalle>(
+    `SELECT id, cita_id, fecha_cita::text AS fecha_cita, canal, estado, intentos, respuesta, respondido_en, respondido_por
+       FROM envio WHERE tenant_id = $1 AND fecha_cita BETWEEN $2 AND $3 ORDER BY creado_en, id`,
+    [tenantId, desde, hasta],
+  );
+  return r.rows.map((f) => ({ ...aEnvio(f), respuesta: f.respuesta, respondidoEn: f.respondido_en, respondidoPor: f.respondido_por }));
+}
+
+/** Envío de correo vigente (no anulado) de la cita; si hubo varias fechas, el de la más reciente. */
+export async function envioCorreoVigenteDeCita(tx: pg.PoolClient, tenantId: string, citaId: string): Promise<Envio | null> {
+  const r = await tx.query<Fila>(
+    `SELECT id, cita_id, fecha_cita::text AS fecha_cita, canal, estado, intentos FROM envio
+      WHERE tenant_id = $1 AND cita_id = $2 AND canal = 'correo' AND estado <> 'anulado' ORDER BY fecha_cita DESC LIMIT 1`,
+    [tenantId, citaId],
+  );
+  return r.rows[0] ? aEnvio(r.rows[0]) : null;
+}
+
+/** `pendiente` → `aprobado`. `false` si el envío no estaba pendiente (ya aprobado, enviado, fallido o anulado). */
+export async function aprobarEnvio(tx: pg.PoolClient, tenantId: string, envioId: string, usuarioId: string, ahora: Date): Promise<boolean> {
+  const r = await tx.query(
+    `UPDATE envio SET estado = 'aprobado', aprobado_por = $3, aprobado_en = $4 WHERE tenant_id = $1 AND id = $2 AND canal = 'correo' AND estado = 'pendiente'`,
+    [tenantId, envioId, usuarioId, ahora],
+  );
+  return r.rowCount === 1;
+}
+
+/** Aprueba todos los correos `pendiente` de las citas entre dos fechas locales; devuelve los recién aprobados. */
+export async function aprobarPendientes(tx: pg.PoolClient, tenantId: string, desde: string, hasta: string, usuarioId: string, ahora: Date): Promise<Envio[]> {
+  const r = await tx.query<Fila>(
+    `UPDATE envio SET estado = 'aprobado', aprobado_por = $4, aprobado_en = $5
+      WHERE tenant_id = $1 AND canal = 'correo' AND estado = 'pendiente' AND fecha_cita BETWEEN $2 AND $3
+      RETURNING id, cita_id, fecha_cita::text AS fecha_cita, canal, estado, intentos`,
+    [tenantId, desde, hasta, usuarioId, ahora],
+  );
+  return r.rows.map(aEnvio);
+}
+
+/** Reintento manual de un correo `fallido`: vuelve a `aprobado` con los intentos en cero. `false` si no estaba fallido. */
+export async function reabrirFallido(tx: pg.PoolClient, tenantId: string, envioId: string, usuarioId: string, ahora: Date): Promise<boolean> {
+  const r = await tx.query(
+    `UPDATE envio SET estado = 'aprobado', intentos = 0, aprobado_por = $3, aprobado_en = $4, reclamado_en = NULL
+      WHERE tenant_id = $1 AND id = $2 AND canal = 'correo' AND estado = 'fallido'`,
+    [tenantId, envioId, usuarioId, ahora],
+  );
+  return r.rowCount === 1;
+}
+
+/**
+ * Registra "WhatsApp abierto por {usuario}" (estado `enviado`). Si ya existía queda como la última apertura; uno `anulado`
+ * (la cita volvió a esa fecha) arranca de cero, sin respuesta.
+ */
+export async function registrarWhatsAppAbierto(tx: pg.PoolClient, id: string, tenantId: string, citaId: string, fechaCita: string, usuarioId: string, ahora: Date): Promise<void> {
+  await tx.query(
+    `INSERT INTO envio (id, tenant_id, cita_id, fecha_cita, canal, estado, enviado_por, enviado_en) VALUES ($1, $2, $3, $4, 'whatsapp_asistido', 'enviado', $5, $6)
+     ON CONFLICT (tenant_id, cita_id, fecha_cita, canal) DO UPDATE
+       SET respuesta = CASE WHEN envio.estado = 'anulado' THEN NULL ELSE envio.respuesta END,
+           respondido_en = CASE WHEN envio.estado = 'anulado' THEN NULL ELSE envio.respondido_en END,
+           respondido_por = CASE WHEN envio.estado = 'anulado' THEN NULL ELSE envio.respondido_por END,
+           estado = 'enviado', enviado_por = $5, enviado_en = $6`,
+    [id, tenantId, citaId, fechaCita, usuarioId, ahora],
+  );
+}
+
+/** Respuesta que recepción recibió por WhatsApp: crea el envío de WhatsApp si no existía (estado `enviado`) y guarda la respuesta. */
+export async function registrarRespuestaDeRecepcion(
+  tx: pg.PoolClient,
+  id: string,
+  tenantId: string,
+  citaId: string,
+  fechaCita: string,
+  usuarioId: string,
+  respuesta: Respuesta,
+  ahora: Date,
+): Promise<void> {
+  await tx.query(
+    `INSERT INTO envio (id, tenant_id, cita_id, fecha_cita, canal, estado, enviado_por, enviado_en, respuesta, respondido_en, respondido_por)
+     VALUES ($1, $2, $3, $4, 'whatsapp_asistido', 'enviado', $5::uuid, $6, $7, $6, $5::text)
+     ON CONFLICT (tenant_id, cita_id, fecha_cita, canal) DO UPDATE
+       SET estado = 'enviado', respuesta = $7, respondido_en = $6, respondido_por = $5::text`,
+    [id, tenantId, citaId, fechaCita, usuarioId, ahora, respuesta],
+  );
+}

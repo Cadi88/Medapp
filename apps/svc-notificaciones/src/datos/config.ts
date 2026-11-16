@@ -22,3 +22,15 @@ export async function leerConfig(tx: pg.PoolClient, tenantId: string): Promise<C
   if (!f) return CONFIG_POR_OMISION;
   return { modo: f.modo, horaEnvio: f.hora_envio, plantillas: { correoAsunto: f.asunto, correoCuerpo: f.cuerpo, whatsapp: f.whatsapp } };
 }
+
+/** Guarda la configuración completa del tenant (crea la fila si no existía) junto con la zona del consultorio. */
+export async function guardarConfig(tx: pg.PoolClient, tenantId: string, zonaHoraria: string, c: ConfigRecordatorios, usuarioId: string): Promise<void> {
+  await tx.query(
+    `INSERT INTO config_recordatorios (tenant_id, modo, hora_envio, zona_horaria, plantilla_correo_asunto, plantilla_correo_cuerpo, plantilla_whatsapp, actualizada_por)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+     ON CONFLICT (tenant_id) DO UPDATE
+       SET modo = $2, hora_envio = $3, zona_horaria = $4, plantilla_correo_asunto = $5, plantilla_correo_cuerpo = $6, plantilla_whatsapp = $7,
+           actualizada_por = $8, actualizada_en = now()`,
+    [tenantId, c.modo, c.horaEnvio, zonaHoraria, c.plantillas.correoAsunto, c.plantillas.correoCuerpo, c.plantillas.whatsapp, usuarioId],
+  );
+}

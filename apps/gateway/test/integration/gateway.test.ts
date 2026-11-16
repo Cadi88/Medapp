@@ -57,7 +57,7 @@ let recibidos = 0;
 const nuevo = async (extra: Partial<Parameters<typeof buildGateway>[0]> = {}): Promise<FastifyInstance> => {
   const app = await buildGateway({
     jwksUrl: jwks.url,
-    destinos: { identidad: identidad.url, auditoria: auditoria.url, agenda: agenda.url },
+    destinos: { identidad: identidad.url, auditoria: auditoria.url, agenda: agenda.url, notificaciones: agenda.url },
     ...extra,
   });
   abiertos.push(app);
@@ -321,6 +321,15 @@ describe('rate limit por IP', () => {
     expect(r.headers['retry-after']).toBeTruthy();
   });
 
+  test('respuestas del paciente: sin token pasan (GET y POST) con límite por IP; recordatorios exige JWT', async () => {
+    const g = await nuevo({ limitePublicoPorMin: 2 });
+    expect((await g.inject({ url: '/api/notificaciones/recordatorios' })).statusCode).toBe(401);
+    expect((await g.inject({ url: '/api/notificaciones/respuestas/abc', remoteAddress: '10.9.1.1' })).statusCode).toBe(200);
+    const post = { method: 'POST' as const, url: '/api/notificaciones/respuestas/abc', payload: { respuesta: 'confirma' }, remoteAddress: '10.9.1.1' };
+    expect((await g.inject(post)).statusCode).toBe(200);
+    expect((await g.inject(post)).statusCode).toBe(429);
+  });
+
   test('aplica a rutas de sesión, auth y jwks; es por IP', async () => {
     const g = await nuevo({ limitePublicoPorMin: 1 });
     for (const url of ['/api/identidad/tenants/mios', '/api/identidad/.well-known/jwks.json', '/api/identidad/auth/get-session']) {
@@ -360,7 +369,7 @@ describe('destino no disponible', () => {
     const muerto = await iniciarDestino();
     const url = muerto.url;
     await muerto.stop();
-    const g = await nuevo({ destinos: { identidad: url, auditoria: url, agenda: url } });
+    const g = await nuevo({ destinos: { identidad: url, auditoria: url, agenda: url, notificaciones: url } });
     const r = await g.inject(registroReq);
     expect(r.statusCode).toBe(503);
     expect(r.json()).toEqual({ code: 'INTERNO', message: 'Servicio no disponible' });
@@ -375,7 +384,7 @@ describe('destino no disponible', () => {
     });
     await new Promise<void>((r) => lento.listen(0, '127.0.0.1', r));
     const url = `http://127.0.0.1:${(lento.address() as AddressInfo).port}`;
-    const g = await nuevo({ destinos: { identidad: url, auditoria: url, agenda: url }, timeoutDestinoMs: 200 });
+    const g = await nuevo({ destinos: { identidad: url, auditoria: url, agenda: url, notificaciones: url }, timeoutDestinoMs: 200 });
     const r = await g.inject(registroReq);
     expect(r.statusCode).toBe(503);
     expect(r.json().message).toBe('Servicio no disponible');

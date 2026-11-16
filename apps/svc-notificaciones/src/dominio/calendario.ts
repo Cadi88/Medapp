@@ -74,3 +74,37 @@ export function debeEnviarInmediato(ahora: DateTime, zona: string, modo: ModoRec
   const fechaCita = fechaCitaLocal(inicioIso, zona);
   return fechaCita === hoy.fechaCitas ? { fechaCita } : null;
 }
+
+/** `HH:mm:ss` (tipo `time` de Postgres) → `HH:mm`. */
+export const recortarHora = (hora: string): string => hora.slice(0, 5);
+
+/** Instante local en que sale el recordatorio de una cita: la víspera a `horaEnvio`. `null` ante hora, fecha o zona inválidas. */
+function instanteDeEnvio(zona: string, horaEnvio: string, fechaCita: string): DateTime | null {
+  const hora = HORA_ENVIO.exec(horaEnvio);
+  if (!hora) return null;
+  const instante = DateTime.fromISO(`${fechaDeEnvio(fechaCita)}T${hora[1]}:${hora[2]}`, { zone: zona });
+  return instante.isValid ? instante : null;
+}
+
+/** "Sin aprobar — no se envió": en `con_revision`, el envío sigue `pendiente` y ya pasó la hora a la que debía salir. */
+export function sinAprobarYVencido(ahora: DateTime, zona: string, modo: ModoRecordatorios, horaEnvio: string, fechaCita: string, estado: EstadoEnvio): boolean {
+  if (modo !== 'con_revision' || estado !== 'pendiente') return false;
+  const salida = instanteDeEnvio(zona, horaEnvio, fechaCita);
+  return salida !== null && ahora >= salida;
+}
+
+/** Un envío aprobado sale en ese momento si ya pasó su hora de envío y la cita aún no empieza (si no, lo enviará la corrida del día). */
+export function enviableAhora(ahora: DateTime, zona: string, horaEnvio: string, fechaCita: string, inicioIso: string): boolean {
+  const salida = instanteDeEnvio(zona, horaEnvio, fechaCita);
+  const inicio = DateTime.fromISO(inicioIso, { setZone: true });
+  return salida !== null && inicio.isValid && ahora >= salida && ahora < inicio;
+}
+
+/** Motivo por el que `desde`–`hasta` (fechas locales `YYYY-MM-DD`) no es un rango válido de a lo sumo `maxDias` días inclusive; `null` si lo es. */
+export function errorDeRango(desde: string, hasta: string, maxDias: number): string | null {
+  const d = DateTime.fromISO(desde, { zone: 'UTC' });
+  const h = DateTime.fromISO(hasta, { zone: 'UTC' });
+  if (!d.isValid || !h.isValid) return 'Fecha inválida';
+  const dias = Math.round(h.diff(d, 'days').days) + 1;
+  return dias < 1 || dias > maxDias ? `El rango debe ser de 1 a ${maxDias} días` : null;
+}

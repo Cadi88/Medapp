@@ -51,7 +51,7 @@ services:
       retries: 20
 
   # --- Servicios de la aplicación (perfil `app`): docker compose --profile app up -d --build --wait ---
-  # Requieren .env (bash scripts/generar-dev-env.sh). Solo el gateway (8080) y el sitio web (3000) publican puerto.
+  # Requieren .env (bash scripts/generar-dev-env.sh). Publican puerto: el gateway (8080), el sitio web (3000) y Mailpit (8025, buzón de los recordatorios).
   svc-identidad:
     profiles: ["app"]
     build:
@@ -116,6 +116,51 @@ services:
       nats: { condition: service_healthy }
       svc-identidad: { condition: service_healthy }
 
+  # Buzón de pruebas: recibe el SMTP de los recordatorios (puerto 1025, solo en la red interna) y lo muestra en http://localhost:8025.
+  mailpit:
+    profiles: ["app"]
+    image: axllent/mailpit
+    ports: ["8025:8025"]
+    healthcheck:
+      test: ["CMD", "/mailpit", "readyz"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  svc-notificaciones:
+    profiles: ["app"]
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.service
+      args: { APP: svc-notificaciones }
+    environment:
+      PORT: "3005"
+      DATABASE_URL: postgres://notificaciones_app:${NOTIFICACIONES_APP_PASSWORD:-notificaciones_app_local_dev}@postgres:5432/notificaciones_db
+      MIGRATOR_DATABASE_URL: postgres://notificaciones_migrator:${NOTIFICACIONES_MIGRATOR_PASSWORD:-notificaciones_migrator_local_dev}@postgres:5432/notificaciones_db
+      NATS_URL: nats://nats:4222
+      JWKS_URL: http://svc-identidad:3001/.well-known/jwks.json
+      TOKEN_INTERNO: ${TOKEN_INTERNO:?falta TOKEN_INTERNO; ejecuta scripts/generar-dev-env.sh}
+      AGENDA_URL: http://svc-agenda:3004
+      IDENTIDAD_URL: http://svc-identidad:3001
+      # Origen público del sitio web: los enlaces de los correos apuntan a {WEB_ORIGEN}/r/{token}.
+      WEB_ORIGEN: ${WEB_ORIGEN:-http://localhost:3000}
+      SMTP_HOST: mailpit
+      SMTP_PORT: "1025"
+      SMTP_REMITENTE: recordatorios@consultorio.local
+      # Solo lectura de logos/*: las mismas credenciales de MinIO en local (el bucket lo crea svc-identidad).
+      S3_ENDPOINT: http://minio:9000
+      S3_REGION: us-east-1
+      S3_BUCKET: consultorio-archivos
+      S3_ACCESS_KEY_ID: ${MINIO_ROOT_USER:-minio_local}
+      S3_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:-minio_local_dev_pw}
+    depends_on:
+      postgres: { condition: service_healthy }
+      nats: { condition: service_healthy }
+      minio: { condition: service_healthy }
+      mailpit: { condition: service_healthy }
+      svc-identidad: { condition: service_healthy }
+      svc-agenda: { condition: service_healthy }
+
   gateway:
     profiles: ["app"]
     build:
@@ -129,6 +174,7 @@ services:
       IDENTIDAD_URL: http://svc-identidad:3001
       AUDITORIA_URL: http://svc-auditoria:3003
       AGENDA_URL: http://svc-agenda:3004
+      NOTIFICACIONES_URL: http://svc-notificaciones:3005
       # En local todo llega de una sola IP: límite holgado para que la E2E repetida no choque con el rate limit.
       LIMITE_PUBLICO_POR_MIN: ${LIMITE_PUBLICO_POR_MIN:-1000}
       # Solo se confía en la IP fija de `web` (reenvía X-Forwarded-For con la IP del cliente). Las llamadas directas
@@ -138,6 +184,7 @@ services:
       svc-identidad: { condition: service_healthy }
       svc-auditoria: { condition: service_healthy }
       svc-agenda: { condition: service_healthy }
+      svc-notificaciones: { condition: service_healthy }
 
   # Sitio web (Next.js): el navegador habla solo con él; Next llama al gateway por la red interna.
   web:

@@ -58,7 +58,7 @@ describe('clasificarRuta', () => {
       servicio: 'auditoria',
       rutaDestino: '/eventos?limite=5&x=a%20b',
     });
-    expect(clasificarRuta('GET', '/api/identidad/medicos/abc/perfil?q=%C3%B1&r=%2F')?.rutaDestino).toBe('/medicos/abc/perfil?q=%C3%B1&r=%2F');
+    expect(clasificarRuta('GET', '/api/identidad/medicos/abc/perfil?q=%C3%B1&r=%2F')).toMatchObject({ rutaDestino: '/medicos/abc/perfil?q=%C3%B1&r=%2F' });
   });
 
   test('rutas /api/agenda/* son protegidas y se enrutan a AGENDA_URL', () => {
@@ -71,8 +71,20 @@ describe('clasificarRuta', () => {
     expect(clasificarRuta('GET', '/api/agenda')).toBeNull();
   });
 
-  test('RUTAS_PUBLICAS solo contiene rutas de identidad', () => {
-    expect(RUTAS_PUBLICAS.every((r) => r.startsWith('/api/identidad/'))).toBe(true);
+  test('gateway: /api/notificaciones/respuestas/* es pública; /api/notificaciones/recordatorios exige JWT', () => {
+    expect(clasificarRuta('GET', '/api/notificaciones/respuestas/abc')).toEqual({ servicio: 'notificaciones', rutaDestino: '/respuestas/abc', acceso: 'publica' });
+    expect(clasificarRuta('POST', '/api/notificaciones/respuestas/abc')?.acceso).toBe('publica');
+    expect(clasificarRuta('PUT', '/api/notificaciones/respuestas/abc')?.acceso).toBe('protegida');
+    expect(clasificarRuta('GET', '/api/notificaciones/recordatorios?desde=2030-01-01')?.acceso).toBe('protegida');
+    expect(clasificarRuta('GET', '/api/notificaciones/config')?.acceso).toBe('protegida');
+    expect(clasificarRuta('POST', '/api/notificaciones/recordatorios/aprobar')?.acceso).toBe('protegida');
+    expect(clasificarRuta('GET', '/api/notificaciones/interno/x')).toEqual({ acceso: 'bloqueada' });
+    expect(urlDestino('http://svc-notificaciones:3005', '/respuestas/abc')).toBe('http://svc-notificaciones:3005/respuestas/abc');
+  });
+
+  test('RUTAS_PUBLICAS solo contiene rutas de identidad y las respuestas del paciente', () => {
+    expect(RUTAS_PUBLICAS.every((r) => r.startsWith('/api/identidad/') || r === '/api/notificaciones/respuestas/*')).toBe(true);
+    expect(RUTAS_PUBLICAS).toContain('/api/notificaciones/respuestas/*');
   });
 });
 

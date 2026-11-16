@@ -1,6 +1,6 @@
 import { isPublicPath } from '@consultorio/platform';
 
-export type Servicio = 'identidad' | 'auditoria' | 'agenda';
+export type Servicio = 'identidad' | 'auditoria' | 'agenda' | 'notificaciones';
 export type Acceso = 'publica' | 'sesion' | 'protegida' | 'bloqueada';
 
 export interface RutaReenviable {
@@ -31,12 +31,14 @@ export const REGLAS_ABIERTAS: readonly ReglaAbierta[] = [
   { metodos: ['GET'], patron: `${P}/.well-known/jwks.json`, acceso: 'publica' },
   { metodos: ['GET'], patron: `${P}/tenants/mios`, acceso: 'sesion' },
   { metodos: ['POST'], patron: `${P}/sesion/tenant`, acceso: 'sesion' },
+  // Página pública de respuesta del paciente: el token del enlace es la credencial.
+  { metodos: ['GET', 'POST'], patron: '/api/notificaciones/respuestas/*', acceso: 'publica' },
 ];
 
 /** Lista para `platformPlugin` (solo ruta, sin método: el método se vuelve a comprobar en el handler). */
 export const RUTAS_PUBLICAS: readonly string[] = REGLAS_ABIERTAS.map((r) => r.patron);
 
-const SERVICIOS: readonly Servicio[] = ['identidad', 'auditoria', 'agenda'];
+const SERVICIOS: readonly Servicio[] = ['identidad', 'auditoria', 'agenda', 'notificaciones'];
 
 const rutaSinQuery = (url: string): string => {
   const i = url.search(/[?#]/);

@@ -1,7 +1,7 @@
 export interface GatewayConfig {
   port: number;
   jwksUrl: string;
-  destinos: { identidad: string; auditoria: string; agenda: string };
+  destinos: { identidad: string; auditoria: string; agenda: string; notificaciones: string };
   confiarEnProxy: boolean | string;
   limitePublicoPorMin: number;
 }
@@ -48,6 +48,7 @@ export function leerConfig(env: Env): GatewayConfig {
       identidad: requerida(env, 'IDENTIDAD_URL'),
       auditoria: requerida(env, 'AUDITORIA_URL'),
       agenda: requerida(env, 'AGENDA_URL'),
+      notificaciones: requerida(env, 'NOTIFICACIONES_URL'),
     },
     confiarEnProxy: parseConfiarEnProxy(env.CONFIAR_EN_PROXY),
     limitePublicoPorMin: entero(env, 'LIMITE_PUBLICO_POR_MIN', 60, 1),

@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'vitest';
 import { leerConfig, parseConfiarEnProxy } from '../../src/config.js';
 
-const base = { JWKS_URL: 'http://i/jwks', IDENTIDAD_URL: 'http://i', AUDITORIA_URL: 'http://a', AGENDA_URL: 'http://g' };
+const base = { JWKS_URL: 'http://i/jwks', IDENTIDAD_URL: 'http://i', AUDITORIA_URL: 'http://a', AGENDA_URL: 'http://g', NOTIFICACIONES_URL: 'http://n' };
 
 describe('parseConfiarEnProxy', () => {
   test.each([
@@ -24,7 +24,7 @@ describe('leerConfig', () => {
     expect(leerConfig(base)).toEqual({
       port: 3000,
       jwksUrl: 'http://i/jwks',
-      destinos: { identidad: 'http://i', auditoria: 'http://a', agenda: 'http://g' },
+      destinos: { identidad: 'http://i', auditoria: 'http://a', agenda: 'http://g', notificaciones: 'http://n' },
       confiarEnProxy: false,
       limitePublicoPorMin: 60,
     });
@@ -38,6 +38,9 @@ describe('leerConfig', () => {
   });
   test('config sin AGENDA_URL falla al iniciar', () => {
     expect(() => leerConfig({ ...base, AGENDA_URL: undefined })).toThrow(/AGENDA_URL/);
+  });
+  test('config sin NOTIFICACIONES_URL falla al iniciar', () => {
+    expect(() => leerConfig({ ...base, NOTIFICACIONES_URL: undefined })).toThrow(/NOTIFICACIONES_URL/);
   });
   test('límite inválido', () => {
     expect(() => leerConfig({ ...base, LIMITE_PUBLICO_POR_MIN: '0' })).toThrow(/LIMITE_PUBLICO_POR_MIN/);
