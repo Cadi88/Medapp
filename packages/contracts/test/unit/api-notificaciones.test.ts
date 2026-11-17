@@ -18,7 +18,7 @@ const cita = {
   medico: 'Dra. Ruiz',
   estadoCita: 'agendada',
   pideCambio: false,
-  correo: { estado: 'pendiente', sinAprobarYVencido: false, vistaPrevia: { asunto: 'a', texto: 't' } },
+  correo: { estado: 'pendiente', sinAprobarYVencido: false, enviableAhora: false, vistaPrevia: { asunto: 'a', texto: 't' } },
   whatsapp: { abierto: false, enlace: 'https://wa.me/525512345678?text=x', motivo: null, vistaPrevia: 'hola' },
   respuesta: null,
 };
@@ -66,9 +66,12 @@ describe('respuestas de las acciones de recordatorios', () => {
   const id = '0190a0a0-0000-7000-8000-0000000000a1';
   test('forma de cada respuesta', async () => {
     const c = await import('../../src/api/notificaciones.js');
-    expect(c.estadoCorreoRespuestaSchema.parse({ citaId: id, estado: 'enviado' })).toEqual({ citaId: id, estado: 'enviado' });
-    expect(c.estadoCorreoRespuestaSchema.safeParse({ citaId: id, estado: 'raro' }).success).toBe(false);
-    expect(c.aprobarRangoRespuestaSchema.parse({ aprobados: 2, enviados: 1 })).toEqual({ aprobados: 2, enviados: 1 });
+    expect(c.estadoCorreoRespuestaSchema.parse({ citaId: id, estado: 'aprobado', envio: 'fallido' })).toEqual({ citaId: id, estado: 'aprobado', envio: 'fallido' });
+    expect(c.estadoCorreoRespuestaSchema.safeParse({ citaId: id, estado: 'raro', envio: 'enviado' }).success).toBe(false);
+    expect(c.estadoCorreoRespuestaSchema.safeParse({ citaId: id, estado: 'enviado' }).success).toBe(false);
+    expect(c.estadoCorreoRespuestaSchema.safeParse({ citaId: id, estado: 'enviado', envio: 'quizas' }).success).toBe(false);
+    expect(c.aprobarRangoRespuestaSchema.parse({ aprobados: 2, enviados: 1, fallidos: 1 })).toEqual({ aprobados: 2, enviados: 1, fallidos: 1 });
+    expect(c.aprobarRangoRespuestaSchema.safeParse({ aprobados: 2, enviados: 1 }).success).toBe(false);
     expect(c.enlaceWhatsAppSchema.parse({ enlace: 'https://wa.me/1' })).toEqual({ enlace: 'https://wa.me/1' });
     expect(c.respuestaRegistradaSchema.parse({ citaId: id, respuesta: 'cancela' })).toEqual({ citaId: id, respuesta: 'cancela' });
   });
