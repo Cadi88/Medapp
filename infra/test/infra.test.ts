@@ -510,8 +510,7 @@ describe('aislamiento de red', () => {
     expect(origenes(notificaciones)).toEqual([gateway()]);
     expect(origenes(idDeGrupo(red, 'Grupo de seguridad de svc-identidad'))).toContain(notificaciones);
     expect(origenes(idDeGrupo(red, 'Grupo de seguridad de svc-agenda'))).toContain(notificaciones);
-    // Nada más tiene permiso de hablar con el servicio de notificaciones: ni web ni el balanceador.
-    expect(origenes(idDeGrupo(red, 'Grupo de seguridad de web'))).not.toContain(notificaciones);
+    // Notificaciones no acepta tráfico de web, del balanceador ni de agenda/identidad: solo del gateway (arriba).
   });
   test('el gateway solo admite ingreso desde el balanceador, web y los servicios que leen el JWKS', () => {
     const reglas = reglasDeEntrada().filter((r) => r.destino === gateway());

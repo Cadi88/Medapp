@@ -1,20 +1,10 @@
 import { expect, test, type APIRequestContext, type Page } from '@playwright/test';
-import { agendarCita, configurarHorarioYTipo, eventoDe, fechaFutura, irASemanaDe, registrarYEntrar } from './apoyo.js';
+import { agendarCita, configurarHorarioYTipo, eventoDe, fechaFutura, irASemanaDe, registrarYEntrar, zonaParaCitaDeHoy } from './apoyo.js';
 
 /** Buzón de desarrollo donde llegan los correos (el stack usa Mailpit: nunca sale un correo real). */
 const MAILPIT = process.env.E2E_MAILPIT_URL ?? 'http://localhost:8025';
-const ZONA = 'America/Mexico_City';
+const ORIGEN_WEB = process.env.E2E_WEB_URL ?? 'http://localhost:3000';
 
-interface MensajeMailpit {
-  ID: string;
-  To: { Address: string }[];
-}
-
-/** Vacía el buzón para que lo que se lea después sea de esta prueba. */
-async function vaciarBuzon(request: APIRequestContext): Promise<void> {
-  const r = await request.delete(`${MAILPIT}/api/v1/messages`);
-  expect(r.ok()).toBe(true);
-}
 
 /** Espera el correo dirigido a `destinatario` y devuelve su texto. */
 async function esperarCorreo(request: APIRequestContext, destinatario: string): Promise<string> {
@@ -22,9 +12,10 @@ async function esperarCorreo(request: APIRequestContext, destinatario: string): 
   await expect
     .poll(
       async () => {
-        const r = await request.get(`${MAILPIT}/api/v1/messages`);
-        const { messages } = (await r.json()) as { messages: MensajeMailpit[] };
-        id = messages.find((m) => m.To.some((t) => t.Address === destinatario))?.ID ?? '';
+        // Destinatario único por ejecución: no hace falta vaciar el buzón (lo comparte la prueba E2E de API).
+        const r = await request.get(`${MAILPIT}/api/v1/search?query=${encodeURIComponent(`to:${destinatario}`)}`);
+        const { messages } = (await r.json()) as { messages: { ID: string }[] };
+        id = messages[0]?.ID ?? '';
         return id;
       },
       { timeout: 60_000, intervals: [1_000] },
@@ -35,14 +26,14 @@ async function esperarCorreo(request: APIRequestContext, destinatario: string): 
 }
 
 /** Cita de hoy, tarde: se pide con "Otra hora" y se confirma el aviso de fuera de jornada (el médico atiende hasta las 20:00). */
-async function agendarCitaDeHoy(page: Page, paciente: string): Promise<void> {
+async function agendarCitaDeHoy(page: Page, paciente: string, hoy: string): Promise<void> {
   await page.goto('/agenda');
   await page.getByRole('button', { name: 'Nueva cita' }).click();
   const dialogo = page.getByRole('dialog', { name: 'Nueva cita' });
   const medico = dialogo.getByLabel('Médico');
   if ((await medico.inputValue()) === '') await medico.selectOption({ index: 1 });
   await dialogo.getByLabel('Tipo de cita').selectOption({ index: 1 });
-  await dialogo.getByLabel('Fecha').fill(fechaFutura(ZONA, 0));
+  await dialogo.getByLabel('Fecha').fill(hoy);
   await dialogo.getByLabel('Otra hora').fill('23:50');
   await dialogo.getByLabel('Nombre del paciente').fill(paciente);
   await dialogo.getByLabel('Teléfono').fill('5512345678');
@@ -56,6 +47,11 @@ test('recordatorio: aprobar → correo en Mailpit → el paciente cancela desde 
   browser,
   request,
 }) => {
+  // La zona y las fechas se fijan una sola vez al empezar: pasadas las 23:00 en Ciudad de México se usa Tijuana para que
+  // la cita de hoy a las 23:50 no quede en el pasado ni "hoy" y "mañana" cambien a mitad de la prueba.
+  const ZONA = zonaParaCitaDeHoy();
+  const hoy = fechaFutura(ZONA, 0);
+  const manana = fechaFutura(ZONA, 1);
   const doctora = await registrarYEntrar(page, { zona: ZONA });
   await configurarHorarioYTipo(page, doctora.nombre);
 
@@ -68,8 +64,6 @@ test('recordatorio: aprobar → correo en Mailpit → el paciente cancela desde 
 
   const paciente = 'Paciente Recordatorio';
   const correoPaciente = `paciente@${doctora.slug}.test`;
-  const manana = fechaFutura(ZONA, 1);
-  await vaciarBuzon(request);
   await agendarCita(page, { fecha: manana, paciente, email: correoPaciente });
 
   await test.step('en "Recordatorios" aparece sin aprobar; al aprobar sale el correo', async () => {
@@ -82,11 +76,13 @@ test('recordatorio: aprobar → correo en Mailpit → el paciente cancela desde 
   });
 
   const texto = await esperarCorreo(request, correoPaciente);
-  const enlace = /\/r\/[A-Za-z0-9_-]{43}/.exec(texto)?.[0];
+  const enlace = /https?:\/\/\S+?\/r\/[A-Za-z0-9_-]{43}/.exec(texto)?.[0];
   expect(enlace, 'el correo trae el enlace /r/{token}').toBeDefined();
+  expect(enlace!.startsWith(`${ORIGEN_WEB}/r/`)).toBe(true);
 
   await test.step('el paciente (sin sesión) abre el enlace: ver la página no responde por él; elige Cancelar y confirma', async () => {
     const contexto = await browser.newContext();
+    try {
     const paciente_ = await contexto.newPage();
     await paciente_.goto(enlace!);
     await expect(paciente_.getByRole('button', { name: 'Enviar respuesta' })).toBeDisabled();
@@ -97,7 +93,9 @@ test('recordatorio: aprobar → correo en Mailpit → el paciente cancela desde 
     // Un solo uso: al volver a abrir el mismo enlace ya está respondida.
     await paciente_.goto(enlace!);
     await expect(paciente_.getByText('Esta cita ya fue respondida')).toBeVisible();
-    await contexto.close();
+    } finally {
+      await contexto.close();
+    }
   });
 
   await test.step('en la agenda la cita aparece cancelada', async () => {
@@ -114,12 +112,12 @@ test('recordatorio: aprobar → correo en Mailpit → el paciente cancela desde 
 
   await test.step('a 375 px "Mi día" muestra la cita de hoy del médico', async () => {
     const deHoy = 'Paciente De Hoy';
-    await agendarCitaDeHoy(page, deHoy);
+    await agendarCitaDeHoy(page, deHoy, hoy);
     await page.setViewportSize({ width: 375, height: 812 });
     await page.goto('/mi-dia');
     await expect(page.getByRole('heading', { name: 'Mi día', level: 1 })).toBeVisible();
-    const hoy = page.getByRole('region', { name: 'Hoy' });
-    await expect(hoy.getByText(deHoy)).toBeVisible();
+    const regionHoy = page.getByRole('region', { name: 'Hoy' });
+    await expect(regionHoy.getByText(deHoy)).toBeVisible();
     // Sin desplazamiento horizontal: pensado para el celular.
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   });

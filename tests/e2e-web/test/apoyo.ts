@@ -254,3 +254,12 @@ export async function altaMiembro(
 
 /** FullCalendar escribe la hora sin cero inicial ("9:00 - 9:30"); el formulario la muestra como "09:00". */
 export const horaDelCalendario = (hora: string): RegExp => new RegExp(`^${hora.replace(/^0/, '')} - `);
+
+/**
+ * Zona del consultorio de las pruebas que agendan "hoy" a las 23:50: la cita no puede quedar en el pasado. Si en Ciudad de
+ * México ya son las 23:00 o más, se usa Tijuana (1-2 horas atrás, todavía temprano); si no, Ciudad de México.
+ */
+export function zonaParaCitaDeHoy(ahora: number = Date.now()): 'America/Mexico_City' | 'America/Tijuana' {
+  const hora = Number(new Intl.DateTimeFormat('en-GB', { timeZone: 'America/Mexico_City', hour: '2-digit', hourCycle: 'h23' }).format(ahora));
+  return hora >= 23 ? 'America/Tijuana' : 'America/Mexico_City';
+}

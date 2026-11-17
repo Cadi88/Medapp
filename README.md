@@ -88,7 +88,7 @@ Variables de `svc-notificaciones` (ya puestas en `docker-compose.yml` y en `infr
 | `SMTP_HOST`, `SMTP_PORT`, `SMTP_USUARIO`, `SMTP_PASSWORD`, `SMTP_REMITENTE` | `mailpit`, `1025`, sin usuario, `recordatorios@consultorio.local` | secreto `consultorio/smtp` |
 | `WEB_ORIGEN` | `http://localhost:3000` | URL pública del sitio (los enlaces de los correos apuntan ahí) |
 | `AGENDA_URL`, `IDENTIDAD_URL`, `JWKS_URL`, `NATS_URL` | red de compose | Service Connect |
-| `S3_*` | MinIO (solo lectura de `logos/*`) | rol de la tarea: `s3:GetObject` sobre `logos/*` y `kms:Decrypt` |
+| `S3_*` | MinIO (credenciales locales; el servicio solo lee `logos/*`) | rol de la tarea: `s3:GetObject` sobre `logos/*` y `kms:Decrypt` |
 
 `TOKEN_INTERNO` protege las rutas `/interno/*` de agenda, identidad y notificaciones (cabecera `x-token-interno`); el gateway
 responde 404 a `/api/<servicio>/interno/*`, así que no se alcanzan desde internet. El gateway recibe además `NOTIFICACIONES_URL`.
