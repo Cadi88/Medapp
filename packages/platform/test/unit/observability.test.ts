@@ -1,7 +1,7 @@
 import Fastify from 'fastify';
 import { Writable } from 'node:stream';
 import { afterEach, describe, expect, test, vi } from 'vitest';
-import { createLogger, initTelemetry, ocultarTokenEnUrl, serializarReq, shutdownTelemetry } from '../../src/observability.js';
+import { atributosDeSpanEntrante, createLogger, initTelemetry, ocultarTokenEnUrl, serializarReq, shutdownTelemetry } from '../../src/observability.js';
 
 function memoria() {
   const lines: string[] = [];
@@ -68,6 +68,13 @@ describe('token de respuesta en los logs', () => {
     const [l] = m.json();
     expect(JSON.stringify(l)).not.toContain('SECRETO-TOKEN');
     expect(l).toMatchObject({ req: { method: 'GET', url: '/api/notificaciones/respuestas/[oculto]', host: 'h', remoteAddress: '1.1.1.1', remotePort: 5 } });
+  });
+
+  test('el span entrante sustituye url.path (instrumentation-http mezcla estos atributos sobre los suyos) sin el token ni la consulta', () => {
+    expect(atributosDeSpanEntrante({ url: '/api/notificaciones/respuestas/SECRETO-TOKEN?accion=confirma' })).toEqual({ 'url.path': '/api/notificaciones/respuestas/[oculto]' });
+    expect(atributosDeSpanEntrante({ url: '/respuestas/SECRETO/logo' })).toEqual({ 'url.path': '/respuestas/[oculto]/logo' });
+    expect(atributosDeSpanEntrante({ url: '/recordatorios?desde=2030-01-01' })).toEqual({ 'url.path': '/recordatorios' });
+    expect(atributosDeSpanEntrante({})).toEqual({ 'url.path': '' });
   });
 
   test('serializarReq tolera una petición sin url', () => {

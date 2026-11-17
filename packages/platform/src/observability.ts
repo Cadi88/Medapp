@@ -10,6 +10,15 @@ export function ocultarTokenEnUrl(url: string): string {
   return url.replace(/(\/respuestas\/)[^/?#]+/g, '$1[oculto]');
 }
 
+/**
+ * Atributos que sustituyen a los del span entrante: instrumentation-http (convenciones estables) fija `url.path` con la ruta
+ * tal cual y mezcla estos encima, así que ahí va la ruta sin el token. La consulta no lleva el token y la gestiona la propia instrumentación.
+ */
+export function atributosDeSpanEntrante(req: { url?: string }): { 'url.path': string } {
+  const ruta = (req.url ?? '').split(/[?#]/, 1)[0] ?? '';
+  return { 'url.path': ocultarTokenEnUrl(ruta) };
+}
+
 interface ReqLike {
   method?: string;
   url?: string;
@@ -62,10 +71,7 @@ export function initTelemetry(servicio: string): void {
     instrumentations: [
       new HttpInstrumentation({
         // El token de /respuestas/{token} no debe viajar en los atributos de las trazas.
-        startIncomingSpanHook: (req) => {
-          const url = (req as { url?: string }).url ?? '';
-          return { 'http.target': ocultarTokenEnUrl(url), 'http.url': ocultarTokenEnUrl(url) };
-        },
+        startIncomingSpanHook: (req) => atributosDeSpanEntrante(req as { url?: string }),
       }),
       new FastifyInstrumentation(),
       new PgInstrumentation(),
