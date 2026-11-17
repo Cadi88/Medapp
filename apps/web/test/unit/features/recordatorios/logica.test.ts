@@ -78,6 +78,6 @@ describe('agruparPorFechaYMedico', () => {
 describe('hayPendientes', () => {
   test('solo cuenta correos sin aprobar', () => {
     expect(hayPendientes([recordatorio()])).toBe(true);
-    expect(hayPendientes([recordatorio({ correo: { estado: 'enviado', sinAprobarYVencido: false, vistaPrevia: null } })])).toBe(false);
+    expect(hayPendientes([recordatorio({ correo: { estado: 'enviado', sinAprobarYVencido: false, enviableAhora: false, vistaPrevia: null } })])).toBe(false);
   });
 });

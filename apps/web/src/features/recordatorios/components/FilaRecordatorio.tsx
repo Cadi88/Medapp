@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button';
 import { ETIQUETA_PIDE_CAMBIO } from '@/features/agenda/logica/estados';
 import { formatearHora } from '@/features/agenda/logica/formato';
 import { abrirWhatsApp, aprobarRecordatorio, registrarRespuestaRecepcion, reintentarEnvio } from '../actions';
-import { ETIQUETA_RESPUESTA, pasoLaHoraDeEnvio, textoCorreo, textoRespuesta, textoWhatsApp } from '../logica/presentacion';
+import { ETIQUETA_RESPUESTA, textoCorreo, textoRespuesta, textoWhatsApp } from '../logica/presentacion';
 import type { ResultadoRecordatorio, ResultadoWhatsApp } from '../tipos';
 
 export type Ejecutar = (accion: () => Promise<ResultadoRecordatorio | ResultadoWhatsApp>) => Promise<void>;
@@ -15,8 +15,6 @@ export type Ejecutar = (accion: () => Promise<ResultadoRecordatorio | ResultadoW
 interface Props {
   cita: RecordatorioCita;
   zona: string;
-  /** Hora de envío del consultorio (`HH:MM`): de ella depende si aprobar debe dejar el correo enviado. */
-  horaEnvio: string;
   /** Corre la acción, avisa si falló y evita que se lance otra mientras tanto. */
   ejecutar: Ejecutar;
   ocupado: boolean;
@@ -25,14 +23,14 @@ interface Props {
 const RESPUESTAS: RespuestaPacienteValor[] = ['confirma', 'cancela', 'pide_cambio'];
 
 /** Una cita: hora, paciente, estado del correo y del WhatsApp, vistas previas y las acciones que le tocan. */
-export function FilaRecordatorio({ cita, zona, horaEnvio, ejecutar, ocupado }: Props) {
+export function FilaRecordatorio({ cita, zona, ejecutar, ocupado }: Props) {
   const { correo, whatsapp, respuesta } = cita;
   const estadoWhatsApp = textoWhatsApp(whatsapp);
   /** Enlace para tocar cuando el navegador no dejó abrir la pestaña (p. ej. Safari). */
   const [enlaceManual, setEnlaceManual] = useState<string>();
 
   /** Aprobar y "Enviar ahora" son la misma acción; el servicio es idempotente. */
-  const aprobar = () => ejecutar(() => aprobarRecordatorio(cita.citaId, pasoLaHoraDeEnvio(cita.fecha, horaEnvio, zona, new Date())));
+  const aprobar = () => ejecutar(() => aprobarRecordatorio(cita.citaId));
 
   /**
    * La pestaña se abre en el clic, antes de esperar al servidor (Safari bloquea las que se abren después de un
@@ -95,7 +93,7 @@ export function FilaRecordatorio({ cita, zona, horaEnvio, ejecutar, ocupado }: P
             Aprobar
           </Button>
         ) : null}
-        {correo.estado === 'aprobado' ? (
+        {correo.estado === 'aprobado' && correo.enviableAhora ? (
           <Button type="button" size="sm" variant="outline" disabled={ocupado} onClick={() => void aprobar()}>
             Enviar ahora
           </Button>

@@ -15,6 +15,7 @@ describe('etiquetaAccion', () => {
       ['cita.reprogramada', 'Cita reprogramada'],
       ['cita.cancelada', 'Cita cancelada'],
       ['cita.estado_cambiado', 'Estado de cita cambiado'],
+      ['cita.respuesta_paciente', 'Respuesta del paciente recibida'],
       ['consultorio.actualizado', 'Consultorio actualizado'],
       ['config_recordatorios.actualizada', 'Recordatorios configurados'],
     ]);
@@ -71,6 +72,24 @@ describe('detalleDeAccion', () => {
     expect(detalleDeAccion('consultorio.actualizado', { campos: ['nuevo'] })).toBeUndefined();
     expect(detalleDeAccion('consultorio.actualizado', { campos: ['logo', 'nuevo'] })).toBe('Logo');
     expect(detalleDeAccion('cita.creada', { campos: ['logo'] })).toBeUndefined();
+  });
+});
+
+describe('cita.respuesta_paciente', () => {
+  test('dice qué respondió el paciente', () => {
+    expect(etiquetaAccion('cita.respuesta_paciente', { respuesta: 'confirma', origen: 'paciente' })).toBe('Respuesta del paciente recibida: confirma');
+    expect(etiquetaAccion('cita.respuesta_paciente', { respuesta: 'cancela', origen: 'paciente' })).toBe('Respuesta del paciente recibida: cancela');
+    expect(etiquetaAccion('cita.respuesta_paciente', { respuesta: 'pide_cambio', origen: 'paciente' })).toBe('Respuesta del paciente recibida: pide cambio');
+  });
+
+  test('registrada por recepción lo dice', () => {
+    expect(etiquetaAccion('cita.respuesta_paciente', { respuesta: 'confirma', origen: 'recepcion' })).toBe('Respuesta del paciente recibida: confirma (registrado por recepción)');
+  });
+
+  test('sin detalle (o con una respuesta que esta versión no conoce) queda el texto general', () => {
+    expect(etiquetaAccion('cita.respuesta_paciente')).toBe('Respuesta del paciente recibida');
+    expect(etiquetaAccion('cita.respuesta_paciente', { respuesta: 'quizas', origen: 'paciente' })).toBe('Respuesta del paciente recibida');
+    expect(etiquetaAccion('cita.respuesta_paciente', { origen: 'recepcion' })).toBe('Respuesta del paciente recibida (registrado por recepción)');
   });
 });
 

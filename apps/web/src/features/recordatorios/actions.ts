@@ -1,6 +1,6 @@
 'use server';
 
-import { abrirWhatsAppSchema, aprobarRangoSchema, citaIdParamsSchema, registrarRespuestaRecepcionSchema } from '@consultorio/contracts';
+import { abrirWhatsAppSchema, aprobarRangoSchema, citaIdParamsSchema, registrarRespuestaRecepcionSchema, type ResultadoEnvioApi } from '@consultorio/contracts';
 import { revalidatePath } from 'next/cache';
 import { estadoDeFallo, type Fallo } from '@/features/comun/errores';
 import type { Resultado } from '@/lib/api/resultado';
@@ -29,30 +29,36 @@ async function terminar(r: Resultado<unknown>): Promise<ResultadoRecordatorio> {
   return r.ok ? { ok: true } : { mensaje: mensajeDeFallo(r) };
 }
 
-/**
- * Aprueba (o, con el correo ya aprobado, "Enviar ahora"). `esperaEnvio`: ya pasó la hora de envío de esa cita, así que
- * el correo debe salir en el acto; si el servicio responde que sigue `aprobado`, no salió y se avisa.
- */
-export async function aprobarRecordatorio(citaId: string, esperaEnvio = false): Promise<ResultadoRecordatorio> {
-  const id = citaIdParamsSchema.safeParse({ citaId });
-  if (!id.success) return invalido;
-  const r = await aprobarEnApi(id.data.citaId);
-  if (r.ok && esperaEnvio && r.datos.estado === 'aprobado') {
+/** Termina una acción que pudo intentar un envío: si ese envío falló, se avisa (aunque la aprobación o el reintento haya quedado). */
+async function terminarEnvio(r: Resultado<{ envio: ResultadoEnvioApi }>): Promise<ResultadoRecordatorio> {
+  if (r.ok && r.datos.envio === 'fallido') {
     refrescar();
     return { mensaje: TEXTO_NO_SE_PUDO_ENVIAR };
   }
   return terminar(r);
 }
 
+/** Aprueba (o, con el correo ya aprobado y listo para salir, "Enviar ahora"); avisa si el envío de esa llamada falló. */
+export async function aprobarRecordatorio(citaId: string): Promise<ResultadoRecordatorio> {
+  const id = citaIdParamsSchema.safeParse({ citaId });
+  return id.success ? terminarEnvio(await aprobarEnApi(id.data.citaId)) : invalido;
+}
+
 /** Aprueba (y envía lo que ya toca) todos los pendientes del rango que la pantalla está mostrando. */
 export async function aprobarTodos(desde: string, hasta: string): Promise<ResultadoRecordatorio> {
   const rango = aprobarRangoSchema.safeParse({ desde, hasta });
-  return rango.success ? terminar(await aprobarRangoEnApi(rango.data)) : invalido;
+  if (!rango.success) return invalido;
+  const r = await aprobarRangoEnApi(rango.data);
+  if (r.ok && r.datos.fallidos > 0) {
+    refrescar();
+    return { mensaje: r.datos.fallidos === 1 ? TEXTO_NO_SE_PUDO_ENVIAR : `${TEXTO_NO_SE_PUDO_ENVIAR} ${r.datos.fallidos} correos` };
+  }
+  return terminar(r);
 }
 
 export async function reintentarEnvio(citaId: string): Promise<ResultadoRecordatorio> {
   const id = citaIdParamsSchema.safeParse({ citaId });
-  return id.success ? terminar(await reintentarEnApi(id.data.citaId)) : invalido;
+  return id.success ? terminarEnvio(await reintentarEnApi(id.data.citaId)) : invalido;
 }
 
 /** Es un `https://wa.me/...`: lo único que el servicio debe devolver y lo único que el navegador abre. */

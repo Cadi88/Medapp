@@ -67,12 +67,12 @@ describe('encabezado y grupos', () => {
 
 describe('estados', () => {
   test('"Sin aprobar — no se envió" cuando sinAprobarYVencido', () => {
-    mostrar(datos([recordatorio({ correo: { estado: 'pendiente', sinAprobarYVencido: true, vistaPrevia: null } })]));
+    mostrar(datos([recordatorio({ correo: { estado: 'pendiente', sinAprobarYVencido: true, enviableAhora: false, vistaPrevia: null } })]));
     expect(within(fila('Ana Pérez')).getByText('Sin aprobar — no se envió')).toBeInTheDocument();
   });
 
   test('"Sin correo — usa WhatsApp" cuando no hay correo y no hay botón de aprobar', () => {
-    mostrar(datos([recordatorio({ correo: { estado: 'sin_correo', sinAprobarYVencido: false, vistaPrevia: null } })]));
+    mostrar(datos([recordatorio({ correo: { estado: 'sin_correo', sinAprobarYVencido: false, enviableAhora: false, vistaPrevia: null } })]));
     const f = fila('Ana Pérez');
     expect(within(f).getByText('Sin correo — usa WhatsApp')).toBeInTheDocument();
     expect(within(f).queryByRole('button', { name: 'Aprobar' })).not.toBeInTheDocument();
@@ -107,7 +107,7 @@ describe('acciones', () => {
   test('Aprobar llama a la acción con la cita', async () => {
     mostrar(datos([recordatorio()]));
     await userEvent.click(within(fila('Ana Pérez')).getByRole('button', { name: 'Aprobar' }));
-    expect(m.aprobarRecordatorio).toHaveBeenCalledWith(CITA_A, expect.any(Boolean));
+    expect(m.aprobarRecordatorio).toHaveBeenCalledWith(CITA_A);
   });
 
   test('Aprobar todos manda el rango mostrado y solo aparece con pendientes', async () => {
@@ -115,13 +115,13 @@ describe('acciones', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Aprobar todos' }));
     expect(m.aprobarTodos).toHaveBeenCalledWith('2026-11-16', '2026-11-18');
     unmount();
-    mostrar(datos([recordatorio({ correo: { estado: 'enviado', sinAprobarYVencido: false, vistaPrevia: null } })]));
+    mostrar(datos([recordatorio({ correo: { estado: 'enviado', sinAprobarYVencido: false, enviableAhora: false, vistaPrevia: null } })]));
     expect(screen.queryByRole('button', { name: 'Aprobar todos' })).not.toBeInTheDocument();
   });
 
   test('Reintentar solo con correo fallido; el error del servicio se muestra', async () => {
     m.reintentarEnvio.mockResolvedValue({ mensaje: 'La cita ya empezó; no se puede reenviar el recordatorio' });
-    mostrar(datos([recordatorio({ correo: { estado: 'fallido', sinAprobarYVencido: false, vistaPrevia: null } })]));
+    mostrar(datos([recordatorio({ correo: { estado: 'fallido', sinAprobarYVencido: false, enviableAhora: false, vistaPrevia: null } })]));
     const f = fila('Ana Pérez');
     expect(within(f).getByText('No se pudo enviar')).toBeInTheDocument();
     await userEvent.click(within(f).getByRole('button', { name: 'Reintentar' }));

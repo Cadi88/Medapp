@@ -22,23 +22,17 @@ beforeEach(() => vi.clearAllMocks());
 
 describe('aprobarRecordatorio', () => {
   test('aprueba la cita y refresca la pantalla', async () => {
-    m.llamarGateway.mockResolvedValueOnce(exito({ citaId: CITA_A, estado: 'enviado' }));
+    m.llamarGateway.mockResolvedValueOnce(exito({ citaId: CITA_A, estado: 'enviado', envio: 'enviado' }));
     expect(await acciones.aprobarRecordatorio(CITA_A)).toEqual({ ok: true });
     expect(m.llamarGateway).toHaveBeenCalledWith(`${BASE}/${CITA_A}/aprobar`, expect.objectContaining({ metodo: 'POST', auth: 'token' }));
     expect(m.revalidatePath).toHaveBeenCalledWith('/recordatorios');
   });
 
-  test('tras la hora de envío, un correo que sigue aprobado avisa que no salió; si salió, no', async () => {
-    m.llamarGateway.mockResolvedValueOnce(exito({ citaId: CITA_A, estado: 'aprobado' }));
-    expect(await acciones.aprobarRecordatorio(CITA_A, true)).toEqual({ mensaje: 'No se pudo enviar' });
-    m.llamarGateway.mockResolvedValueOnce(exito({ citaId: CITA_A, estado: 'enviado' }));
-    expect(await acciones.aprobarRecordatorio(CITA_A, true)).toEqual({ ok: true });
-  });
-
-  test('antes de la hora de envío "aprobado" es lo esperado', async () => {
-    m.llamarGateway.mockResolvedValueOnce(exito({ citaId: CITA_A, estado: 'aprobado' }));
-    expect(await acciones.aprobarRecordatorio(CITA_A, false)).toEqual({ ok: true });
-    m.llamarGateway.mockResolvedValueOnce(exito({ citaId: CITA_A, estado: 'aprobado' }));
+  test('si el envío de esa llamada falló, avisa "No se pudo enviar" y refresca; si no se intentó o salió, es éxito', async () => {
+    m.llamarGateway.mockResolvedValueOnce(exito({ citaId: CITA_A, estado: 'aprobado', envio: 'fallido' }));
+    expect(await acciones.aprobarRecordatorio(CITA_A)).toEqual({ mensaje: 'No se pudo enviar' });
+    expect(m.revalidatePath).toHaveBeenCalledWith('/recordatorios');
+    m.llamarGateway.mockResolvedValueOnce(exito({ citaId: CITA_A, estado: 'aprobado', envio: 'no_intentado' }));
     expect(await acciones.aprobarRecordatorio(CITA_A)).toEqual({ ok: true });
   });
 
@@ -71,9 +65,17 @@ describe('aprobarRecordatorio', () => {
 
 describe('aprobarTodos', () => {
   test('envía el rango como lo mostró la pantalla', async () => {
-    m.llamarGateway.mockResolvedValueOnce(exito({ aprobados: 2, enviados: 1 }));
+    m.llamarGateway.mockResolvedValueOnce(exito({ aprobados: 2, enviados: 2, fallidos: 0 }));
     expect(await acciones.aprobarTodos('2026-11-16', '2026-11-18')).toEqual({ ok: true });
     expect(m.llamarGateway).toHaveBeenCalledWith(`${BASE}/aprobar`, expect.objectContaining({ cuerpo: { desde: '2026-11-16', hasta: '2026-11-18' } }));
+  });
+
+  test('con envíos fallidos avisa "No se pudo enviar" (con cuántos si son varios) y refresca', async () => {
+    m.llamarGateway.mockResolvedValueOnce(exito({ aprobados: 2, enviados: 1, fallidos: 1 }));
+    expect(await acciones.aprobarTodos('2026-11-16', '2026-11-18')).toEqual({ mensaje: 'No se pudo enviar' });
+    m.llamarGateway.mockResolvedValueOnce(exito({ aprobados: 3, enviados: 0, fallidos: 3 }));
+    expect(await acciones.aprobarTodos('2026-11-16', '2026-11-18')).toEqual({ mensaje: 'No se pudo enviar 3 correos' });
+    expect(m.revalidatePath).toHaveBeenCalledWith('/recordatorios');
   });
 
   test('un rango inválido no llega al gateway', async () => {
@@ -90,8 +92,14 @@ describe('reintentarEnvio', () => {
   });
 
   test('éxito', async () => {
-    m.llamarGateway.mockResolvedValueOnce(exito({ citaId: CITA_A, estado: 'enviado' }));
+    m.llamarGateway.mockResolvedValueOnce(exito({ citaId: CITA_A, estado: 'enviado', envio: 'enviado' }));
     expect(await acciones.reintentarEnvio(CITA_A)).toEqual({ ok: true });
+  });
+
+  test('si el reenvío falló otra vez, avisa "No se pudo enviar"', async () => {
+    m.llamarGateway.mockResolvedValueOnce(exito({ citaId: CITA_A, estado: 'aprobado', envio: 'fallido' }));
+    expect(await acciones.reintentarEnvio(CITA_A)).toEqual({ mensaje: 'No se pudo enviar' });
+    expect(m.revalidatePath).toHaveBeenCalledWith('/recordatorios');
   });
 });
 

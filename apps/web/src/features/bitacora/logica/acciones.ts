@@ -8,6 +8,7 @@ const ETIQUETAS = {
   'cita.reprogramada': 'Cita reprogramada',
   'cita.cancelada': 'Cita cancelada',
   'cita.estado_cambiado': 'Estado de cita cambiado',
+  'cita.respuesta_paciente': 'Respuesta del paciente recibida',
   'consultorio.actualizado': 'Consultorio actualizado',
   'config_recordatorios.actualizada': 'Recordatorios configurados',
 } as const satisfies Record<string, string>;
@@ -21,15 +22,21 @@ export function etiquetaAccion(accion: string, detalle?: unknown): string {
 
 const REGISTRADO_POR_RECEPCION = ' (registrado por recepción)';
 
+const RESPUESTAS_DEL_PACIENTE: Record<string, string> = { confirma: 'confirma', cancela: 'cancela', pide_cambio: 'pide cambio' };
+
 /**
  * Cancelar, confirmar o pedir cambio puede ser cosa del personal o del paciente (por el enlace del correo o por
  * WhatsApp, caso en que recepción lo registra). El evento lo dice en `origen`; sin él (eventos anteriores) o con
  * `personal`, vale el texto general de la acción.
  */
 function etiquetaDeRespuestaDelPaciente(accion: string, detalle: unknown): string | undefined {
-  const d = (detalle ?? {}) as { origen?: unknown; pideCambio?: unknown; a?: unknown };
-  if (d.origen !== 'paciente' && d.origen !== 'recepcion') return undefined;
+  const d = (detalle ?? {}) as { origen?: unknown; pideCambio?: unknown; a?: unknown; respuesta?: unknown };
   const sufijo = d.origen === 'recepcion' ? REGISTRADO_POR_RECEPCION : '';
+  if (accion === 'cita.respuesta_paciente') {
+    const respuesta = typeof d.respuesta === 'string' ? RESPUESTAS_DEL_PACIENTE[d.respuesta] : undefined;
+    return `${ETIQUETAS[accion]}${respuesta ? `: ${respuesta}` : ''}${sufijo}`;
+  }
+  if (d.origen !== 'paciente' && d.origen !== 'recepcion') return undefined;
   if (accion === 'cita.cancelada') return `Cita cancelada por el paciente${sufijo}`;
   if (accion !== 'cita.estado_cambiado') return undefined;
   if (d.pideCambio === true) return `Paciente pide cambio${sufijo}`;

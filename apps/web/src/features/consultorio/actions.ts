@@ -86,7 +86,7 @@ export async function quitarLogo(): Promise<EstadoFormulario> {
 }
 
 const CAMPOS_RECORDATORIOS = ['modo', 'horaEnvio', 'correoAsunto', 'correoCuerpo', 'whatsapp'] as const;
-const CAMPOS_PLANTILLA: (keyof Plantillas)[] = ['correoAsunto', 'correoCuerpo', 'whatsapp'];
+const CLAVES_PLANTILLA: (keyof Plantillas)[] = ['correoAsunto', 'correoCuerpo', 'whatsapp'];
 
 /** Modo, hora de envío y plantillas de los recordatorios. Se validan aquí (igual que en el servicio) para señalar el campo. */
 export async function guardarConfigRecordatorios(_prev: EstadoFormulario, fd: FormData): Promise<EstadoFormulario> {
@@ -96,7 +96,7 @@ export async function guardarConfigRecordatorios(_prev: EstadoFormulario, fd: Fo
   const modo = esModoValido(valores.modo) ? valores.modo : undefined;
   if (!modo) errores.modo = MENSAJE_MODO;
   if (!esHoraValida(valores.horaEnvio)) errores.horaEnvio = MENSAJE_HORA;
-  for (const campo of CAMPOS_PLANTILLA) {
+  for (const campo of CLAVES_PLANTILLA) {
     const error = errorDePlantilla(campo, valores[campo]);
     if (error) errores[campo] = error;
   }

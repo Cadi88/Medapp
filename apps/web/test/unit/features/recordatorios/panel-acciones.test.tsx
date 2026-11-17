@@ -19,7 +19,7 @@ const { PanelRecordatorios } = await import('@/features/recordatorios/components
 const datos = (citas: RecordatoriosRespuesta['citas']): RecordatoriosRespuesta => ({ modo: 'con_revision', horaEnvio: '10:00', citas });
 const panel = (d: RecordatoriosRespuesta) => <PanelRecordatorios datos={d} desde="2026-11-16" hasta="2026-11-18" zona="America/Mexico_City" />;
 const fila = () => screen.getByRole('listitem', { name: 'Ana Pérez' });
-const aprobado = recordatorio({ correo: { estado: 'aprobado', sinAprobarYVencido: false, vistaPrevia: null } });
+const aprobado = recordatorio({ correo: { estado: 'aprobado', sinAprobarYVencido: false, enviableAhora: true, vistaPrevia: null } });
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -31,27 +31,21 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
-describe('Enviar ahora y la hora de envío', () => {
-  test('un correo aprobado que no ha salido ofrece "Enviar ahora" (misma acción de aprobar)', async () => {
+describe('Enviar ahora', () => {
+  test('un correo aprobado que el servicio dice que puede salir ya ofrece "Enviar ahora" (misma acción de aprobar)', async () => {
     render(panel(datos([aprobado])));
     await userEvent.click(within(fila()).getByRole('button', { name: 'Enviar ahora' }));
-    expect(m.aprobarRecordatorio).toHaveBeenCalledWith(CITA_A, expect.any(Boolean));
+    expect(m.aprobarRecordatorio).toHaveBeenCalledWith(CITA_A);
     expect(within(fila()).queryByRole('button', { name: 'Aprobar' })).not.toBeInTheDocument();
   });
 
-  test('la acción sabe si ya pasó la hora de envío del día anterior (zona del consultorio)', async () => {
-    vi.useFakeTimers({ toFake: ['Date'] });
-    // 2026-11-15 17:00 local: ya pasó las 10:00 del día anterior a la cita del 16
-    vi.setSystemTime(new Date('2026-11-15T23:00:00Z'));
-    render(panel(datos([recordatorio()])));
-    await userEvent.click(within(fila()).getByRole('button', { name: 'Aprobar' }));
-    expect(m.aprobarRecordatorio).toHaveBeenLastCalledWith(CITA_A, true);
+  test('un correo aprobado que aún no le toca salir no ofrece "Enviar ahora"; uno pendiente sigue con "Aprobar"', () => {
+    const espera = recordatorio({ correo: { estado: 'aprobado', sinAprobarYVencido: false, enviableAhora: false, vistaPrevia: null } });
+    render(panel(datos([espera])));
+    expect(within(fila()).queryByRole('button', { name: 'Enviar ahora' })).not.toBeInTheDocument();
     cleanup();
-    // 2026-11-15 06:00 local: todavía no
-    vi.setSystemTime(new Date('2026-11-15T12:00:00Z'));
     render(panel(datos([recordatorio()])));
-    await userEvent.click(within(fila()).getByRole('button', { name: 'Aprobar' }));
-    expect(m.aprobarRecordatorio).toHaveBeenLastCalledWith(CITA_A, false);
+    expect(within(fila()).getByRole('button', { name: 'Aprobar' })).toBeInTheDocument();
   });
 
   test('si la acción avisa que no salió, se muestra', async () => {

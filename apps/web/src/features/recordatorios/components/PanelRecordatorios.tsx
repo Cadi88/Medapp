@@ -66,7 +66,7 @@ export function PanelRecordatorios({ datos, desde, hasta, zona }: Props) {
                 <h3 className="text-sm font-medium text-muted-foreground">{m.medico}</h3>
                 <ul className="grid gap-2">
                   {m.citas.map((c) => (
-                    <FilaRecordatorio key={c.citaId} cita={c} zona={zona} horaEnvio={datos.horaEnvio} ejecutar={ejecutar} ocupado={ocupado} />
+                    <FilaRecordatorio key={c.citaId} cita={c} zona={zona} ejecutar={ejecutar} ocupado={ocupado} />
                   ))}
                 </ul>
               </div>

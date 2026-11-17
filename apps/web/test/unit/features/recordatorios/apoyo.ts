@@ -15,7 +15,7 @@ export function recordatorio(extra: Partial<RecordatorioCita> = {}): Recordatori
     medico: 'Dra. Ruiz',
     estadoCita: 'agendada',
     pideCambio: false,
-    correo: { estado: 'pendiente', sinAprobarYVencido: false, vistaPrevia: { asunto: 'Recordatorio de tu cita', texto: 'Hola Ana, te esperamos.' } },
+    correo: { estado: 'pendiente', sinAprobarYVencido: false, enviableAhora: false, vistaPrevia: { asunto: 'Recordatorio de tu cita', texto: 'Hola Ana, te esperamos.' } },
     whatsapp: { abierto: false, enlace: 'https://wa.me/525512345678?text=Hola', motivo: null, vistaPrevia: 'Hola Ana, ¿nos confirmas?' },
     respuesta: null,
     ...extra,
