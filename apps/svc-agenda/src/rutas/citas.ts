@@ -19,7 +19,7 @@ import { traducirErrorPg } from '../datos/errores.js';
 import { leerHorario } from '../datos/horario.js';
 import { leerZonaHoraria } from '../datos/medicos.js';
 import { leerTipoCita } from '../datos/tipos-cita.js';
-import { puedeReprogramar, transicionPermitida } from '../dominio/estados.js';
+import { pideCambioTras, puedeReprogramar, transicionPermitida } from '../dominio/estados.js';
 import { encajaEnHorario } from '../dominio/horario.js';
 import { rangoDeCita } from '../dominio/tiempo.js';
 import { exigirGestion } from './acceso.js';
@@ -164,7 +164,7 @@ export const citasRutas: FastifyPluginAsync<CitasOpciones> = async (app, { pool,
       if (!transicionPermitida(actual.estado, input.estado)) {
         throw new AppError('CONFLICTO', `Transición de estado no permitida: ${actual.estado} a ${input.estado}`, 409);
       }
-      const cita = await cambiarEstadoCita(tx, tenantId, id, input.version, input.estado);
+      const cita = await cambiarEstadoCita(tx, tenantId, id, input.version, input.estado, pideCambioTras(input.estado, actual.pideCambio));
       if (!cita) throw conflictoVersion();
       const base = { tenantId, actorId: usuarioId, traceId };
       await enqueueEvent(

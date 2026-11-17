@@ -17,6 +17,7 @@ import type { Logger } from 'pino';
 import { cambiarEstadoCita, leerCita, marcarPideCambio } from './datos/citas.js';
 import { guardarConsultorio, guardarMedico, leerMedico } from './datos/medicos.js';
 import { aplicarEventoMedico, type EventoMedico } from './dominio/medicos.js';
+import { pideCambioTras } from './dominio/estados.js';
 import { decidirRespuesta } from './dominio/respuestas.js';
 
 async function aplicarMedico(tx: pg.PoolClient, tenantId: string, usuarioId: string, e: EventoMedico): Promise<void> {
@@ -46,14 +47,14 @@ async function aplicarRespuesta(e: EventEnvelope, tx: pg.PoolClient, logger: Log
   const base = { tenantId: e.tenant_id, actorId: e.actor_id, traceId: e.trace_id };
   const origen = data.origen;
   if (decision.accion === 'cancelar') {
-    const nueva = await cambiarEstadoCita(tx, e.tenant_id, cita.id, cita.version, 'cancelada');
+    const nueva = await cambiarEstadoCita(tx, e.tenant_id, cita.id, cita.version, 'cancelada', pideCambioTras('cancelada', cita.pideCambio));
     if (!nueva) throw conflictoVersion();
     await enqueueEvent(tx, CitaCancelada.create({ ...base, data: { citaId: nueva.id, medicoId: nueva.medicoId, inicio: nueva.inicio, fin: nueva.fin, origen } }));
     return;
   }
   const nueva =
     decision.accion === 'confirmar'
-      ? await cambiarEstadoCita(tx, e.tenant_id, cita.id, cita.version, 'confirmada')
+      ? await cambiarEstadoCita(tx, e.tenant_id, cita.id, cita.version, 'confirmada', pideCambioTras('confirmada', cita.pideCambio))
       : await marcarPideCambio(tx, e.tenant_id, cita.id, cita.version);
   if (!nueva) throw conflictoVersion();
   await enqueueEvent(

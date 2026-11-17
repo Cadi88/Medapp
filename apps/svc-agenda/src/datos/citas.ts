@@ -91,13 +91,13 @@ export async function reprogramarCita(
   return r.rows[0] ? aCita(r.rows[0]) : null;
 }
 
-/** Cambia el estado con control optimista: `null` si la versión ya no es la indicada. */
-export async function cambiarEstadoCita(tx: pg.PoolClient, tenantId: string, id: string, version: number, estado: EstadoCitaDto): Promise<Cita | null> {
+/** Cambia el estado (y `pide_cambio`, que el dominio decide) con control optimista: `null` si la versión ya no es la indicada. */
+export async function cambiarEstadoCita(tx: pg.PoolClient, tenantId: string, id: string, version: number, estado: EstadoCitaDto, pideCambio: boolean): Promise<Cita | null> {
   const r = await tx.query<Fila>(
-    `UPDATE cita SET estado = $4, version = version + 1, actualizada_en = now()
+    `UPDATE cita SET estado = $4, pide_cambio = $5, version = version + 1, actualizada_en = now()
       WHERE tenant_id = $1 AND id = $2 AND version = $3
       RETURNING ${COLUMNAS}`,
-    [tenantId, id, version, estado],
+    [tenantId, id, version, estado, pideCambio],
   );
   return r.rows[0] ? aCita(r.rows[0]) : null;
 }

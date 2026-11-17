@@ -162,6 +162,29 @@ describe('respuestas del paciente', () => {
     }
   });
 
+  test('M6: confirmar el personal una cita que pide cambio limpia pideCambio (y emite el evento de siempre)', async () => {
+    const c = await crearCita(600);
+    await publicar(evento(c, 'pide_cambio'));
+    await esperarVersion(c.id, 2);
+    const token = await ag.tokenPara({ tid: T });
+    const r = await app.inject({ method: 'POST', url: `/citas/${c.id}/estado`, headers: { authorization: `Bearer ${token}` }, payload: { version: 2, estado: 'confirmada' } });
+    expect(r.statusCode).toBe(200);
+    expect(JSON.parse(r.body)).toMatchObject({ estado: 'confirmada', pideCambio: false, version: 3 });
+    expect(await fila(c.id)).toMatchObject({ estado: 'confirmada', pide_cambio: false });
+    const evs = await eventos('cita.estado_cambiado', c.id);
+    expect(evs.at(-1)!.data).toEqual({ citaId: c.id, medicoId: dr, de: 'agendada', a: 'confirmada', origen: 'personal' });
+  });
+
+  test('M6: la respuesta "confirma" que recepción registra por el paciente limpia pideCambio', async () => {
+    const c = await crearCita(640);
+    await publicar(evento(c, 'pide_cambio'));
+    await esperarVersion(c.id, 2);
+    await publicar(evento(c, 'confirma', { actorId: recepcionUsuario }));
+    expect(await esperarVersion(c.id, 3)).toMatchObject({ estado: 'confirmada', pide_cambio: false, version: 3 });
+    const [, confirmado] = await eventos('cita.estado_cambiado', c.id);
+    expect(confirmado!.data).toEqual({ citaId: c.id, medicoId: dr, de: 'agendada', a: 'confirmada', origen: 'recepcion' });
+  });
+
   test('reprogramar limpia pideCambio', async () => {
     const c = await crearCita(400);
     await publicar(evento(c, 'pide_cambio'));
