@@ -68,6 +68,8 @@ export const recordatorioCitaSchema = z.object({
     estado: z.enum(['sin_correo', 'pendiente', 'aprobado', 'enviado', 'fallido', 'anulado']),
     /** `con_revision`, sin aprobar y ya pasó la hora de envío: "Sin aprobar — no se envió". */
     sinAprobarYVencido: z.boolean(),
+    /** Un correo aprobado saldría en este momento: la cita no empezó y ya pasó la hora de envío (o la corrida de la víspera ya corrió). */
+    enviableAhora: z.boolean(),
     vistaPrevia: z.object({ asunto: z.string(), texto: z.string() }).nullable(),
   }),
   whatsapp: z.object({
@@ -127,14 +129,17 @@ export const tokenParamsSchema = z.object({ token: z.string() });
 
 // --- Respuestas de las acciones de la pantalla de recordatorios ---
 
-/** `POST /recordatorios/:citaId/aprobar` y `/reintentar`: el estado en que quedó el correo (`enviado` si salió en ese momento). */
-export const estadoCorreoRespuestaSchema = z.object({ citaId: z.uuid(), estado: estadoEnvioSchema });
-/** `POST /recordatorios/aprobar`. */
-export const aprobarRangoRespuestaSchema = z.object({ aprobados: z.number().int().min(0), enviados: z.number().int().min(0) });
+/** Resultado del intento de envío de esa llamada: `no_intentado` si no tocaba enviar ahora o no se pudo decidir. */
+export const resultadoEnvioSchema = z.enum(['enviado', 'fallido', 'no_intentado']);
+/** `POST /recordatorios/:citaId/aprobar` y `/reintentar`: el estado en que quedó el correo y qué pasó con el envío de esa llamada. */
+export const estadoCorreoRespuestaSchema = z.object({ citaId: z.uuid(), estado: estadoEnvioSchema, envio: resultadoEnvioSchema });
+/** `POST /recordatorios/aprobar`: `fallidos` son los envíos que se intentaron y no salieron. */
+export const aprobarRangoRespuestaSchema = z.object({ aprobados: z.number().int().min(0), enviados: z.number().int().min(0), fallidos: z.number().int().min(0) });
 /** `POST /recordatorios/:citaId/whatsapp`. */
 export const enlaceWhatsAppSchema = z.object({ enlace: z.string() });
 /** `POST /recordatorios/:citaId/respuesta`. */
 export const respuestaRegistradaSchema = z.object({ citaId: z.uuid(), respuesta: respuestaPacienteSchema });
+export type ResultadoEnvioApi = z.infer<typeof resultadoEnvioSchema>;
 export type EstadoCorreoRespuesta = z.infer<typeof estadoCorreoRespuestaSchema>;
 export type AprobarRangoRespuesta = z.infer<typeof aprobarRangoRespuestaSchema>;
 export type EnlaceWhatsApp = z.infer<typeof enlaceWhatsAppSchema>;

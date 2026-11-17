@@ -8,6 +8,7 @@ import { registrarConsultorio } from './datos/consultorios.js';
 import { asegurarEnvioCorreo, leerEnvio, marcarEnviado, reclamarEnvio, registrarFallo } from './datos/envios.js';
 import { debeEnviar, estadosEnviables, fechaCitaLocal, fechaYHoraLocal } from './dominio/calendario.js';
 import type { EstadoEnvio } from './dominio/calendario.js';
+import { hayCorreo } from './dominio/recordatorios.js';
 import { generarToken } from './dominio/token.js';
 import type { Puertos } from './puertos.js';
 
@@ -24,15 +25,16 @@ export interface ContextoEnvio {
   logger?: Logger;
 }
 
-/** `fallido` con `estado` aún reintentable (`pendiente`/`aprobado`) es un fallo transitorio; con `fallido` es definitivo. */
+/**
+ * `fallido` con `estado` aún reintentable (`pendiente`/`aprobado`) es un fallo transitorio; con `fallido` es definitivo.
+ * `ocupado`: otro proceso tiene un reclamo vigente sobre el envío; no se intentó y conviene reintentarlo más tarde.
+ */
 export interface ResultadoEnvio {
-  resultado: 'enviado' | 'fallido' | 'omitido';
+  resultado: 'enviado' | 'fallido' | 'omitido' | 'ocupado';
   /** Estado del envío tras la llamada (`null` si no existe). */
   estado: EstadoEnvio | null;
   intentos: number;
 }
-
-const tieneCorreo = (email: string | null): email is string => email !== null && email.trim().length > 0;
 
 /**
  * Envía el correo de un envío si corresponde según el modo. Idempotente: un envío ya `enviado` (o anulado, fallido,
@@ -51,7 +53,7 @@ export async function enviarCorreo(ctx: ContextoEnvio, tenantId: string, envioId
 
   const citas = await ctx.puertos.agenda.obtenerCitas(tenantId, envio.fechaCita, envio.fechaCita);
   const cita = citas.find((c) => c.citaId === envio.citaId);
-  if (!cita || !tieneCorreo(cita.contacto.email)) return omitido();
+  if (!cita || !hayCorreo(cita.contacto.email)) return omitido();
   const destino = cita.contacto.email.trim();
   const consultorio = await ctx.puertos.identidad.obtenerConsultorio(tenantId);
   let logo: Uint8Array | undefined;
@@ -67,7 +69,11 @@ export async function enviarCorreo(ctx: ContextoEnvio, tenantId: string, envioId
   // Reclamo atómico: el token nuevo reemplaza al anterior y solo quien reclama el envío lo envía (nunca dos correos).
   const { token, hash } = generarToken();
   const reclamado = await withTenant(ctx.pool, tenantId, (tx) => reclamarEnvio(tx, tenantId, envioId, hash, cita.inicio, estadosEnviables(config.modo)));
-  if (!reclamado) return omitido();
+  if (!reclamado) {
+    // Sigue enviable pero el reclamo no fue nuestro: otro proceso lo está enviando (si cambió de estado, simplemente se omite).
+    const actual = await withTenant(ctx.pool, tenantId, (tx) => leerEnvio(tx, tenantId, envioId));
+    return actual && debeEnviar(actual, config.modo) ? { resultado: 'ocupado', estado: actual.estado, intentos: actual.intentos } : omitido();
+  }
 
   const { fecha, hora } = fechaYHoraLocal(cita.inicio, consultorio.zonaHoraria);
   const enlace = (accion: string) => `${ctx.webOrigen.replace(/\/+$/, '')}/r/${token}?accion=${accion}`;
@@ -109,7 +115,7 @@ export async function asegurarEnvios(ctx: ContextoEnvio, tenantId: string, desde
   await withTenant(ctx.pool, tenantId, async (tx) => {
     await registrarConsultorio(tx, tenantId, consultorio.zonaHoraria);
     for (const c of citas) {
-      if (!tieneCorreo(c.contacto.email)) continue;
+      if (!hayCorreo(c.contacto.email)) continue;
       await asegurarEnvioCorreo(tx, uuidv7(), tenantId, c.citaId, fechaCitaLocal(c.inicio, consultorio.zonaHoraria));
     }
   });

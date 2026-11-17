@@ -107,6 +107,26 @@ describe('programador automático', () => {
     expect(destinos()).toHaveLength(1);
   });
 
+  test('M2: un envío con reclamo vivo de otro proceso no registra la corrida; la vuelta siguiente lo envía', async () => {
+    const T = uuidv7();
+    await registrar(T);
+    const c = nuevaCita('2031-05-02T17:30:00.000Z');
+    n.dobles.citas = [c];
+    await aprobar(T, c.citaId, '2031-05-02');
+    await withTenant(n.appPool, T, (tx) => tx.query("UPDATE envio SET reclamado_en = now(), token_hash = 'ajeno' WHERE cita_id = $1", [c.citaId]));
+    ahora = new Date('2031-05-01T16:00:00.000Z');
+    const p = programador();
+    await p.correrAhora();
+    expect(destinos()).toEqual([]);
+    expect(await corridas(T)).toEqual([]);
+
+    await withTenant(n.appPool, T, (tx) => tx.query('UPDATE envio SET reclamado_en = NULL, token_hash = NULL WHERE cita_id = $1', [c.citaId]));
+    ahora = new Date('2031-05-01T16:01:00.000Z');
+    await p.correrAhora();
+    expect(destinos()).toEqual([c.contacto.email]);
+    expect(await corridas(T)).toEqual(['2031-05-01']);
+  });
+
   test('Review Focus 2: dos programadores a la vez (dos instancias) → cada correo sale una vez', async () => {
     const T = uuidv7();
     await registrar(T);

@@ -1,6 +1,6 @@
 import type { CitaParaRecordatorio, ConsultorioParaMensaje, RecordatorioCita } from '@consultorio/contracts';
 import type { DateTime } from 'luxon';
-import { fechaCitaLocal, fechaYHoraLocal, sinAprobarYVencido } from './calendario.js';
+import { enviableAhora, fechaCitaLocal, fechaYHoraLocal, sinAprobarYVencido } from './calendario.js';
 import type { EstadoEnvio, ModoRecordatorios } from './calendario.js';
 import { rellenar, type DatosPlantilla, type Plantillas } from './plantillas.js';
 import { enlaceWhatsApp } from './whatsapp.js';
@@ -21,7 +21,7 @@ export interface ConfigParaPantalla {
   plantillas: Plantillas;
 }
 
-const hayCorreo = (email: string | null): email is string => email !== null && email.trim().length > 0;
+export const hayCorreo = (email: string | null): email is string => email !== null && email.trim().length > 0;
 
 /** Campos de las plantillas para esa cita y consultorio. */
 export function datosDePlantilla(cita: CitaParaRecordatorio, consultorio: ConsultorioParaMensaje): DatosPlantilla {
@@ -42,9 +42,19 @@ export function armarWhatsApp(cita: CitaParaRecordatorio, consultorio: Consultor
   return { mensaje, enlace: enlaceWhatsApp(cita.contacto.telefono, consultorio.pais, mensaje) };
 }
 
-/** Fila de la pantalla "Recordatorios" de una cita; `envios` son los de esa cita en su fecha local. */
-export function armarRecordatorio(e: { cita: CitaParaRecordatorio; consultorio: ConsultorioParaMensaje; config: ConfigParaPantalla; envios: EnvioDeCita[]; ahora: DateTime }): RecordatorioCita {
-  const { cita, consultorio, config, envios, ahora } = e;
+/**
+ * Fila de la pantalla "Recordatorios" de una cita; `envios` son los de esa cita en su fecha local y `corridaHecha`, si ya corrió
+ * la corrida automática de su víspera.
+ */
+export function armarRecordatorio(e: {
+  cita: CitaParaRecordatorio;
+  consultorio: ConsultorioParaMensaje;
+  config: ConfigParaPantalla;
+  envios: EnvioDeCita[];
+  ahora: DateTime;
+  corridaHecha: boolean;
+}): RecordatorioCita {
+  const { cita, consultorio, config, envios, ahora, corridaHecha } = e;
   const fecha = fechaCitaLocal(cita.inicio, consultorio.zonaHoraria);
   const datos = datosDePlantilla(cita, consultorio);
 
@@ -69,6 +79,7 @@ export function armarRecordatorio(e: { cita: CitaParaRecordatorio; consultorio: 
     correo: {
       estado: estadoCorreo,
       sinAprobarYVencido: estadoCorreo !== 'sin_correo' && sinAprobarYVencido(ahora, consultorio.zonaHoraria, config.modo, config.horaEnvio, fecha, estadoCorreo),
+      enviableAhora: estadoCorreo !== 'sin_correo' && enviableAhora(ahora, consultorio.zonaHoraria, config.horaEnvio, fecha, cita.inicio, corridaHecha),
       vistaPrevia:
         estadoCorreo === 'sin_correo'
           ? null

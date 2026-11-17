@@ -18,7 +18,8 @@ export interface OpcionesProgramador {
 /**
  * Corrida automática de un consultorio si ya pasó su hora local de envío y hoy no corrió: asegura los envíos de mañana,
  * envía los que corresponden según el modo y registra la corrida. Un fallo de agenda o identidad se propaga (sin corrida:
- * la vuelta siguiente lo reintenta). Un fallo transitorio del correo (aún con intentos) también deja la corrida sin registrar;
+ * la vuelta siguiente lo reintenta). Un fallo transitorio del correo (aún con intentos) o un envío que otro proceso tiene reclamado
+ * también dejan la corrida sin registrar;
  * al agotar los 3 intentos el envío queda `fallido` y la corrida se registra.
  */
 async function correrConsultorio(ctx: ContextoEnvio, tenantId: string, zona: string): Promise<void> {
@@ -32,7 +33,8 @@ async function correrConsultorio(ctx: ContextoEnvio, tenantId: string, zona: str
   for (const envio of envios) {
     if (!debeEnviar(envio, config.modo)) continue;
     const r = await enviarCorreo(ctx, tenantId, envio.id);
-    if (r.resultado === 'fallido' && (r.estado === 'pendiente' || r.estado === 'aprobado')) reintentar = true;
+    // Fallo transitorio o reclamo vivo de otro proceso: la corrida queda sin registrar y la vuelta siguiente lo reintenta.
+    if (r.resultado === 'ocupado' || (r.resultado === 'fallido' && (r.estado === 'pendiente' || r.estado === 'aprobado'))) reintentar = true;
   }
   if (!reintentar) await withTenant(ctx.pool, tenantId, (tx) => registrarCorrida(tx, tenantId, fechaEnvio));
 }

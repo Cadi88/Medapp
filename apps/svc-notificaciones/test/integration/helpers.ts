@@ -12,7 +12,6 @@ import { uuidv7 } from 'uuidv7';
 import type { AlmacenLectura, CanalCorreo, ClienteAgenda, ClienteIdentidad, MensajeCorreo, Puertos } from '../../src/puertos.js';
 import { buildServer } from '../../src/server.js';
 
-export const TOKEN_INTERNO_PRUEBA = 'token-interno-de-pruebas-'.repeat(2);
 export const WEB_ORIGEN_PRUEBA = 'http://web.test';
 export const MIGRACIONES = fileURLToPath(new URL('../../migrations', import.meta.url));
 
@@ -92,7 +91,6 @@ export async function iniciarNotificaciones(opciones: { reloj?: () => Date } = {
   const app = await buildServer({
     pool: appPool,
     jwksUrl: jwks.url,
-    tokenInterno: TOKEN_INTERNO_PRUEBA,
     webOrigen: WEB_ORIGEN_PRUEBA,
     reloj: opciones.reloj ?? (() => new Date()),
     puertos,

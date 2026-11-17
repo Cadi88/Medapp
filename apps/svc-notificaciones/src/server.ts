@@ -15,8 +15,6 @@ export interface ServerOptions {
   jwksUrl: string;
   /** Reloj inyectable: el dominio nunca llama a `new Date()`. */
   reloj?: () => Date;
-  /** Token de las rutas `/interno/*` (≥ 32 caracteres). */
-  tokenInterno: string;
   /** Origen público del sitio web (enlaces de los correos). */
   webOrigen: string;
   /** Agenda, identidad, correo y almacén; las rutas y el programador los usan. */

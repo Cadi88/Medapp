@@ -10,6 +10,7 @@ import {
   type EnlaceWhatsApp,
   type EstadoCorreoRespuesta,
   type RecordatoriosRespuesta,
+  type ResultadoEnvioApi,
   type RespuestaRegistrada,
 } from '@consultorio/contracts';
 import { AppError, enqueueEvent, withTenant } from '@consultorio/platform';
@@ -78,6 +79,8 @@ async function enviarSiCorresponde(ctx: ContextoEnvio, tenantId: string, usuario
 }
 
 const estadoTrasEnvio = (r: ResultadoEnvio | null): EstadoEnvio => r?.estado ?? 'aprobado';
+/** Lo que le pasó al envío de esta llamada: `ocupado` y `omitido` (o ni siquiera decidido) son `no_intentado`. */
+const envioDe = (r: ResultadoEnvio | null): ResultadoEnvioApi => (r?.resultado === 'enviado' || r?.resultado === 'fallido' ? r.resultado : 'no_intentado');
 
 export const recordatoriosRutas: FastifyPluginAsync<{ ctx: ContextoEnvio }> = async (app, { ctx }) => {
   const pool = ctx.pool;
@@ -96,12 +99,19 @@ export const recordatoriosRutas: FastifyPluginAsync<{ ctx: ContextoEnvio }> = as
     const porCita = new Map<string, EnvioDetalle[]>();
     for (const e of envios) porCita.set(`${e.citaId}|${e.fechaCita}`, [...(porCita.get(`${e.citaId}|${e.fechaCita}`) ?? []), e]);
     const ahoraLocal = ahora();
+    // Corrida de la víspera de cada cita del rango (como mucho 8 fechas): decide si un correo aprobado saldría ya.
+    const fechasDeEnvio = [...new Set(citas.map((c) => fechaDeEnvio(fechaCitaLocal(c.inicio, consultorio.zonaHoraria))))];
+    const corridas = new Set<string>();
+    await withTenant(pool, tenantId, async (tx) => {
+      for (const f of fechasDeEnvio) if (await existeCorrida(tx, tenantId, f)) corridas.add(f);
+    });
     return {
       modo: config.modo,
       horaEnvio: recortarHora(config.horaEnvio),
-      citas: citas.map((cita) =>
-        armarRecordatorio({ cita, consultorio, config, envios: porCita.get(`${cita.citaId}|${fechaCitaLocal(cita.inicio, consultorio.zonaHoraria)}`) ?? [], ahora: ahoraLocal }),
-      ),
+      citas: citas.map((cita) => {
+        const fecha = fechaCitaLocal(cita.inicio, consultorio.zonaHoraria);
+        return armarRecordatorio({ cita, consultorio, config, envios: porCita.get(`${cita.citaId}|${fecha}`) ?? [], ahora: ahoraLocal, corridaHecha: corridas.has(fechaDeEnvio(fecha)) });
+      }),
     };
   });
 
@@ -112,10 +122,13 @@ export const recordatoriosRutas: FastifyPluginAsync<{ ctx: ContextoEnvio }> = as
     await asegurarEnvios(ctx, tenantId, desde, hasta);
     const aprobados = await withTenant(pool, tenantId, (tx) => aprobarPendientes(tx, tenantId, desde, hasta, usuarioId, ctx.reloj()));
     let enviados = 0;
+    let fallidos = 0;
     for (const envio of aprobados) {
-      if ((await enviarSiCorresponde(ctx, tenantId, usuarioId, envio))?.resultado === 'enviado') enviados += 1;
+      const resultado = envioDe(await enviarSiCorresponde(ctx, tenantId, usuarioId, envio));
+      if (resultado === 'enviado') enviados += 1;
+      else if (resultado === 'fallido') fallidos += 1;
     }
-    return { aprobados: aprobados.length, enviados };
+    return { aprobados: aprobados.length, enviados, fallidos };
   });
 
   app.post('/recordatorios/:citaId/aprobar', { preHandler: exigirPersonal }, async (req): Promise<EstadoCorreoRespuesta> => {
@@ -126,8 +139,9 @@ export const recordatoriosRutas: FastifyPluginAsync<{ ctx: ContextoEnvio }> = as
     const recienAprobado = await withTenant(pool, tenantId, (tx) => aprobarEnvio(tx, tenantId, envio.id, usuarioId, ctx.reloj()));
     const estado: EstadoEnvio = recienAprobado ? 'aprobado' : envio.estado;
     // Un correo ya aprobado que no salió (agenda caída) se reintenta al volver a aprobar; el resto no tiene nada que enviar.
-    if (estado !== 'aprobado') return { citaId, estado };
-    return { citaId, estado: estadoTrasEnvio(await enviarSiCorresponde(ctx, tenantId, usuarioId, envio)) };
+    if (estado !== 'aprobado') return { citaId, estado, envio: 'no_intentado' };
+    const r = await enviarSiCorresponde(ctx, tenantId, usuarioId, envio);
+    return { citaId, estado: estadoTrasEnvio(r), envio: envioDe(r) };
   });
 
   app.post('/recordatorios/:citaId/reintentar', { preHandler: exigirPersonal }, async (req): Promise<EstadoCorreoRespuesta> => {
@@ -140,7 +154,8 @@ export const recordatoriosRutas: FastifyPluginAsync<{ ctx: ContextoEnvio }> = as
     if (!cita || ahora() >= DateTime.fromISO(cita.inicio, { setZone: true })) throw new AppError('CONFLICTO', 'La cita ya empezó; no se puede reenviar el recordatorio', 409);
     const reabierto = await withTenant(pool, tenantId, (tx) => reabrirFallido(tx, tenantId, envio.id, usuarioId, ctx.reloj()));
     if (!reabierto) throw new AppError('CONFLICTO', 'Solo se puede reintentar un correo que no se pudo enviar', 409);
-    return { citaId, estado: estadoTrasEnvio(await intentarEnvio(ctx, tenantId, usuarioId, envio.id)) };
+    const r = await intentarEnvio(ctx, tenantId, usuarioId, envio.id);
+    return { citaId, estado: estadoTrasEnvio(r), envio: envioDe(r) };
   });
 
   app.post('/recordatorios/:citaId/whatsapp', { preHandler: exigirPersonal }, async (req): Promise<EnlaceWhatsApp> => {

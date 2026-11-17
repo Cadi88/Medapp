@@ -65,11 +65,11 @@ describe('GET /recordatorios', () => {
     const a = r.citas.find((c) => c.citaId === conCorreo.citaId)!;
     expect(a).toMatchObject({ fecha: '2030-01-08', paciente: 'Ana López', medico: 'Dra. Ruiz', estadoCita: 'agendada', pideCambio: false, respuesta: null });
     // Con revisión, sin aprobar y ya pasó la hora de envío de hoy.
-    expect(a.correo).toMatchObject({ estado: 'pendiente', sinAprobarYVencido: true });
+    expect(a.correo).toMatchObject({ estado: 'pendiente', sinAprobarYVencido: true, enviableAhora: true });
     expect(a.correo.vistaPrevia?.asunto).toContain('Recordatorio de tu cita en Consultorio de prueba');
     expect(a.whatsapp).toMatchObject({ abierto: false, motivo: null });
     expect(a.whatsapp.enlace).toMatch(/^https:\/\/wa\.me\/525512345678\?text=/);
-    expect(r.citas.find((c) => c.citaId === sinCorreo.citaId)!.correo).toEqual({ estado: 'sin_correo', sinAprobarYVencido: false, vistaPrevia: null });
+    expect(r.citas.find((c) => c.citaId === sinCorreo.citaId)!.correo).toEqual({ estado: 'sin_correo', sinAprobarYVencido: false, enviableAhora: false, vistaPrevia: null });
     const e = r.citas.find((c) => c.citaId === telMalo.citaId)!;
     expect(e).toMatchObject({ pideCambio: true, whatsapp: { enlace: null, motivo: 'telefono_invalido' } });
 
@@ -117,7 +117,7 @@ describe('aprobar', () => {
 
     const r = await llamar('POST', `/recordatorios/${c.citaId}/aprobar`);
     expect(r.status).toBe(200);
-    expect(r.cuerpo).toMatchObject({ citaId: c.citaId, estado: 'enviado' });
+    expect(r.cuerpo).toMatchObject({ citaId: c.citaId, estado: 'enviado', envio: 'enviado' });
     expect(n.dobles.correosEnviados).toHaveLength(1);
     expect(n.dobles.correosEnviados[0]!.para).toBe('ana@paciente.test');
     const [fila] = await envios('correo');
@@ -135,7 +135,7 @@ describe('aprobar', () => {
     n.dobles.citas = [c];
     await listar();
     const r = await llamar('POST', `/recordatorios/${c.citaId}/aprobar`);
-    expect(r.cuerpo).toMatchObject({ estado: 'aprobado' });
+    expect(r.cuerpo).toMatchObject({ estado: 'aprobado', envio: 'no_intentado' });
     expect(n.dobles.correosEnviados).toHaveLength(0);
     expect((await envios('correo'))[0]).toMatchObject({ estado: 'aprobado', aprobado_por: recepcionId });
   });
@@ -175,19 +175,54 @@ describe('aprobar', () => {
     await listar();
     n.dobles.fallaCorreo = new Error('SMTP caído');
     for (const esperado of ['aprobado', 'aprobado', 'fallido']) {
-      expect((await llamar('POST', `/recordatorios/${c.citaId}/aprobar`)).cuerpo).toMatchObject({ estado: esperado });
+      expect((await llamar('POST', `/recordatorios/${c.citaId}/aprobar`)).cuerpo).toMatchObject({ estado: esperado, envio: 'fallido' });
     }
     expect((await listar()).citas[0]!.correo.estado).toBe('fallido');
     expect((await llamar('POST', `/recordatorios/${c.citaId}/reintentar`, { rol: 'medico' })).status).toBe(403);
 
     n.dobles.fallaCorreo = null;
     const r = await llamar('POST', `/recordatorios/${c.citaId}/reintentar`);
-    expect(r.cuerpo).toMatchObject({ estado: 'enviado' });
+    expect(r.cuerpo).toMatchObject({ estado: 'enviado', envio: 'enviado' });
     expect(n.dobles.correosEnviados).toHaveLength(1);
     expect((await envios('correo'))[0]).toMatchObject({ estado: 'enviado', intentos: 0 });
     // Ya enviado: no hay nada que reintentar.
     expect((await llamar('POST', `/recordatorios/${c.citaId}/reintentar`)).status).toBe(409);
     expect((await llamar('POST', `/recordatorios/${uuidv7()}/reintentar`)).status).toBe(404);
+  });
+
+  test('I1: Reintentar con SMTP caído responde envio fallido (no parece éxito)', async () => {
+    const c = cita();
+    n.dobles.citas = [c];
+    await listar();
+    await withTenant(n.appPool, T, (tx) => tx.query("UPDATE envio SET estado = 'fallido', intentos = 3 WHERE cita_id = $1", [c.citaId]));
+    n.dobles.fallaCorreo = new Error('SMTP caído');
+    const r = await llamar('POST', `/recordatorios/${c.citaId}/reintentar`);
+    expect(r.status).toBe(200);
+    expect(r.cuerpo).toMatchObject({ estado: 'aprobado', envio: 'fallido' });
+    expect(n.dobles.correosEnviados).toHaveLength(0);
+    n.dobles.fallaCorreo = null;
+    expect((await llamar('POST', `/recordatorios/${c.citaId}/aprobar`)).cuerpo).toMatchObject({ estado: 'enviado', envio: 'enviado' });
+  });
+
+  test('I1: aprobar todos cuenta los envíos que fallan', async () => {
+    const a = cita();
+    const b = cita({ contacto: { nombre: 'Bea', telefono: '5511112222', email: 'bea@paciente.test' } });
+    n.dobles.citas = [a, b];
+    await listar();
+    n.dobles.fallaCorreo = new Error('SMTP caído');
+    const r = await llamar('POST', '/recordatorios/aprobar', { payload: { desde: '2030-01-08', hasta: '2030-01-08' } });
+    expect(r.cuerpo).toEqual({ aprobados: 2, enviados: 0, fallidos: 2 });
+  });
+
+  test('I1: enviableAhora por fila — antes de la hora de envío es false; con la corrida de la víspera hecha es true; con la cita empezada, false', async () => {
+    const c = cita();
+    n.dobles.citas = [c];
+    ahora = new Date('2030-01-07T15:00:00.000Z'); // 09:00 local, antes de las 10:00
+    expect((await listar()).citas[0]!.correo.enviableAhora).toBe(false);
+    await withTenant(n.appPool, T, (tx) => tx.query("INSERT INTO corrida (tenant_id, fecha_envio) VALUES ($1, '2030-01-07')", [T]));
+    expect((await listar()).citas[0]!.correo.enviableAhora).toBe(true);
+    ahora = new Date('2030-01-08T16:00:00.000Z');
+    expect((await listar()).citas[0]!.correo.enviableAhora).toBe(false);
   });
 
   test('reintentar una cita que ya empezó → 409 y no envía', async () => {
@@ -243,15 +278,15 @@ describe('aprobar', () => {
 
     const r = await llamar('POST', '/recordatorios/aprobar', { payload: { desde: '2030-01-08', hasta: '2030-01-08' } });
     expect(r.status).toBe(200);
-    expect(r.cuerpo).toEqual({ aprobados: 2, enviados: 2 });
+    expect(r.cuerpo).toEqual({ aprobados: 2, enviados: 2, fallidos: 0 });
     expect(n.dobles.correosEnviados.map((m) => m.para).sort()).toEqual(['ana@paciente.test', 'bea@paciente.test']);
-    expect((await llamar('POST', '/recordatorios/aprobar', { payload: { desde: '2030-01-08', hasta: '2030-01-08' } })).cuerpo).toEqual({ aprobados: 0, enviados: 0 });
+    expect((await llamar('POST', '/recordatorios/aprobar', { payload: { desde: '2030-01-08', hasta: '2030-01-08' } })).cuerpo).toEqual({ aprobados: 0, enviados: 0, fallidos: 0 });
   });
 
   test('aprobar todos asegura los envíos aunque nadie haya abierto la pantalla', async () => {
     n.dobles.citas = [cita()];
     const r = await llamar('POST', '/recordatorios/aprobar', { payload: { desde: '2030-01-08', hasta: '2030-01-08' } });
-    expect(r.cuerpo).toEqual({ aprobados: 1, enviados: 1 });
+    expect(r.cuerpo).toEqual({ aprobados: 1, enviados: 1, fallidos: 0 });
   });
 
   test('si el envío inmediato falla por una caída de agenda, la aprobación queda y la respuesta lo dice', async () => {
@@ -265,7 +300,7 @@ describe('aprobar', () => {
     try {
       const r = await llamar('POST', `/recordatorios/${c.citaId}/aprobar`);
       expect(r.status).toBe(200);
-      expect(r.cuerpo).toMatchObject({ estado: 'aprobado' });
+      expect(r.cuerpo).toMatchObject({ estado: 'aprobado', envio: 'no_intentado' });
     } finally {
       n.puertos.agenda.obtenerCitas = original;
     }

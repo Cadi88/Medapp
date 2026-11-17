@@ -78,7 +78,7 @@ const cita = (o: Partial<CitaParaRecordatorio> = {}): CitaParaRecordatorio => ({
 });
 const consultorio: ConsultorioParaMensaje = { nombreMostrado: 'Clínica Sol', telefono: '5598765432', colorPrimario: null, colorTexto: null, logoKey: null, zonaHoraria: ZONA, pais: 'MX' };
 const config = { modo: 'con_revision' as const, horaEnvio: '10:00:00', plantillas: PLANTILLAS_POR_OMISION };
-const armar = (c: CitaParaRecordatorio, envios: EnvioDeCita[], ahora = '2030-01-07T09:00:00') => armarRecordatorio({ cita: c, consultorio, config, envios, ahora: en(ahora) });
+const armar = (c: CitaParaRecordatorio, envios: EnvioDeCita[], ahora = '2030-01-07T09:00:00', corridaHecha = false) => armarRecordatorio({ cita: c, consultorio, config, envios, ahora: en(ahora), corridaHecha });
 const envio = (o: Partial<EnvioDeCita> = {}): EnvioDeCita => ({ canal: 'correo', estado: 'pendiente', respuesta: null, respondidoEn: null, respondidoPor: null, ...o });
 
 describe('armarRecordatorio', () => {
@@ -98,7 +98,7 @@ describe('armarRecordatorio', () => {
 
   test('sin correo: estado sin_correo y sin vista previa del correo', () => {
     const r = armar(cita({ contacto: { nombre: 'Ana', telefono: '5512345678', email: null } }), []);
-    expect(r.correo).toEqual({ estado: 'sin_correo', sinAprobarYVencido: false, vistaPrevia: null });
+    expect(r.correo).toEqual({ estado: 'sin_correo', sinAprobarYVencido: false, enviableAhora: false, vistaPrevia: null });
     const vacio = armar(cita({ contacto: { nombre: 'Ana', telefono: '5512345678', email: '  ' } }), []);
     expect(vacio.correo.estado).toBe('sin_correo');
   });
@@ -120,6 +120,14 @@ describe('armarRecordatorio', () => {
   test('con revisión, pendiente y pasada la hora de envío → sinAprobarYVencido', () => {
     expect(armar(cita(), [envio()], '2030-01-07T11:00:00').correo.sinAprobarYVencido).toBe(true);
     expect(armar(cita(), [envio({ estado: 'aprobado' })], '2030-01-07T11:00:00').correo.sinAprobarYVencido).toBe(false);
+  });
+
+  test('enviableAhora: tras la hora de envío o con la corrida hecha, y solo mientras la cita no empieza', () => {
+    expect(armar(cita(), [envio({ estado: 'aprobado' })], '2030-01-07T09:00:00').correo.enviableAhora).toBe(false);
+    expect(armar(cita(), [envio({ estado: 'aprobado' })], '2030-01-07T10:00:00').correo.enviableAhora).toBe(true);
+    expect(armar(cita(), [envio({ estado: 'aprobado' })], '2030-01-07T09:00:00', true).correo.enviableAhora).toBe(true);
+    expect(armar(cita(), [envio({ estado: 'aprobado' })], '2030-01-08T09:00:00', true).correo.enviableAhora).toBe(false);
+    expect(armar(cita({ contacto: { nombre: 'Ana', telefono: '5512345678', email: null } }), []).correo.enviableAhora).toBe(false);
   });
 
   test('respuesta: la más reciente entre canales; el origen sale de quién respondió', () => {

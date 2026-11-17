@@ -188,7 +188,9 @@ describe('enviarCorreo', () => {
     n.dobles.citas = [c];
     const id = await crearEnvio(T, c, 'aprobado');
     const resultados = await Promise.all([enviarCorreo(ctx, T, id), enviarCorreo(ctx, T, id), enviarCorreo(ctx, T, id)]);
-    expect(resultados.map((r) => r.resultado).sort()).toEqual(['enviado', 'omitido', 'omitido']);
+    // Los perdedores ven un reclamo vivo (`ocupado`) o, si el ganador ya terminó, un envío ya enviado (`omitido`).
+    expect(resultados.filter((r) => r.resultado === 'enviado')).toHaveLength(1);
+    expect(resultados.filter((r) => r.resultado === 'ocupado' || r.resultado === 'omitido')).toHaveLength(2);
     const correos = await correosA(c.contacto.email!);
     expect(correos).toHaveLength(1);
     const token = /\/r\/([\w-]{43})\?accion=confirma/.exec(correos[0]!.html)?.[1];
@@ -204,7 +206,7 @@ describe('enviarCorreo', () => {
     const reclamar = (intervalo: string) =>
       withTenant(n.appPool, T, (tx) => tx.query(`UPDATE envio SET reclamado_en = now() - interval '${intervalo}', token_hash = 'ajeno' WHERE id = $1`, [id]));
     await reclamar('1 minute');
-    expect((await enviarCorreo(ctx, T, id)).resultado).toBe('omitido');
+    expect((await enviarCorreo(ctx, T, id)).resultado).toBe('ocupado');
     expect(await correosA(c.contacto.email!)).toEqual([]);
     await reclamar('10 minutes');
     expect((await enviarCorreo(ctx, T, id)).resultado).toBe('enviado');

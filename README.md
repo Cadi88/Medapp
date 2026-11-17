@@ -60,7 +60,7 @@ tiene correo) y, además, la recepción puede abrir el mensaje de WhatsApp ya es
 
 - **Modos** (en **Mi consultorio**, solo administración): *Con revisión* (por omisión: solo se envía lo que la recepción
   **aprobó** en **Recordatorios**, uno por uno o con "Aprobar todos") y *Sin revisión* (todo sale solo a la hora de envío).
-  "Enviar ahora" adelanta un correo ya aprobado. Los correos fallidos se reintentan hasta 3 veces y luego aparecen con "Reintentar".
+  "Enviar ahora" adelanta un correo ya aprobado. Los correos fallidos se reintentan hasta 3 veces solo dentro de la corrida automática; un envío tras aprobar, "Enviar ahora" o "Reintentar" hace un solo intento y, si falla, muestra "No se pudo enviar".
 - **Hora de envío y plantillas** (asunto, cuerpo del correo y WhatsApp) también se editan en **Mi consultorio**; los campos
   `{paciente}`, `{fecha}`, `{hora}`, `{medico}`, `{consultorio}` y `{telefono_consultorio}` se rellenan al enviar.
 - **Respuesta del paciente**: el correo trae un enlace `/r/{token}` (página pública, sin sesión) para confirmar, cancelar o
@@ -84,13 +84,13 @@ Variables de `svc-notificaciones` (ya puestas en `docker-compose.yml` y en `infr
 | --- | --- | --- |
 | `PORT` | `3005` | `3005` |
 | `DATABASE_URL`, `MIGRATOR_DATABASE_URL` | `notificaciones_app` / `notificaciones_migrator` en `notificaciones_db` | secretos `consultorio/notificaciones_app` y `_migrator` |
-| `TOKEN_INTERNO` | del `.env` (≥ 32 caracteres) | secreto `consultorio/token-interno` (compartido con agenda e identidad) |
+| `TOKEN_INTERNO` | del `.env` (≥ 32 caracteres); notificaciones lo usa para llamar a agenda e identidad | secreto `consultorio/token-interno` (compartido con agenda e identidad) |
 | `SMTP_HOST`, `SMTP_PORT`, `SMTP_USUARIO`, `SMTP_PASSWORD`, `SMTP_REMITENTE` | `mailpit`, `1025`, sin usuario, `recordatorios@consultorio.local` | secreto `consultorio/smtp` |
 | `WEB_ORIGEN` | `http://localhost:3000` | URL pública del sitio (los enlaces de los correos apuntan ahí) |
 | `AGENDA_URL`, `IDENTIDAD_URL`, `JWKS_URL`, `NATS_URL` | red de compose | Service Connect |
 | `S3_*` | MinIO (credenciales locales; el servicio solo lee `logos/*`) | rol de la tarea: `s3:GetObject` sobre `logos/*` y `kms:Decrypt` |
 
-`TOKEN_INTERNO` protege las rutas `/interno/*` de agenda, identidad y notificaciones (cabecera `x-token-interno`); el gateway
+`TOKEN_INTERNO` protege las rutas `/interno/*` de agenda e identidad (cabecera `x-token-interno`); notificaciones no expone rutas internas y lo usa solo para llamarlas. El gateway
 responde 404 a `/api/<servicio>/interno/*`, así que no se alcanzan desde internet. El gateway recibe además `NOTIFICACIONES_URL`.
 
 ## Producción
